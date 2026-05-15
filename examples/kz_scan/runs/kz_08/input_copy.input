@@ -1,0 +1,76 @@
+# `.input` files use TOML syntax.
+#
+# Small low-beta stratified RMHD example.
+#
+# This equation set evolves [psi, omega, a]. The field `a` represents the
+# stratification/buoyancy-like variable, and the ideal energy is not conserved:
+#
+#   d_t E = stratification + dissipation + forcing + ...
+#
+# The scalar output includes `totalc_energy_rhs_stratification`, so this case is
+# useful for checking the energy-budget plotting workflow.
+#
+# Use:
+#   python -m rmhdgpu.run examples/low_beta_stratified.input
+#   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_budget.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_spectra.py examples/outputs/spectra.csv
+
+title = "Low-beta stratified linear-mode example"
+output_dir = "outputs"
+
+[equations]
+type = "low_beta_stratified"
+mode = 'linear'
+
+[grid]
+Nx = 16
+Ny = 16
+Nz = 16
+
+[time]
+tmax = 6
+dt_init = 1.0e-3
+dt_max = 2.0e-3
+use_variable_dt = true
+cfl_number = 0.4
+
+[output]
+t_out_scal = 0.2
+t_out_spec = 0.0
+t_out_full = 0.0
+
+[backend]
+backend = "numpy"
+
+[runtime]
+progress_output_every = 100
+
+[physics]
+vA = 1.0
+N2 = 6
+
+[initial_condition]
+type = "single_fourier_mode"
+[initial_condition.parameters]
+# With k = (0, 1, 0), the growth rate is sqrt(N2) in the linear system.
+k_indices = [1, 2, 1]
+amplitude = 0.000000000001
+
+[dissipation.psi]
+nu_perp = 0.0e-4
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.omega]
+nu_perp = 0.0e-4
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.a]
+nu_perp = 0.0e-4
+nu_par = 0.0
+n_perp = 2
+n_par = 1

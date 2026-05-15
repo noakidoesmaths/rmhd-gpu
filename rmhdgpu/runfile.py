@@ -55,7 +55,7 @@ _SECTION_KEYS = {
     "output": {"t_out_scal", "t_out_spec", "t_out_full"},
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
     "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "dealias", "dealias_mode"},
-    "physics": {"vA", "cs2_over_vA2", "N2"},
+    "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
     "forcing": {"use_forcing", "n_min_force", "n_max_force", "alpha_force", "forcing_seed", "force_amplitudes"},
 }
 _AUTO_DISSIPATION_KEYS = {
@@ -78,7 +78,7 @@ _SECTION_TO_CONFIG_KEYS = {
     "output": {"t_out_scal", "t_out_spec", "t_out_full"},
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
     "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "dealias", "dealias_mode"},
-    "physics": {"vA", "cs2_over_vA2", "N2"},
+    "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
     "forcing": {"use_forcing", "n_min_force", "n_max_force", "alpha_force", "forcing_seed"},
 }
 

@@ -19,7 +19,9 @@ Requires-Dist: pytest>=7.4; extra == "dev"
 
 Current solver scope includes:
 
-- ideal homogeneous S09 equations
+- multiple equation sets selected from `.input` files
+- ideal homogeneous S09 five-field equations
+- low-beta stratified three-field RMHD equations with a non-conservative energy budget
 - anisotropic dissipation with integrating-factor time stepping
 - optional auto-dissipation with one common adaptive perpendicular coefficient
 - variable timestep support
@@ -78,6 +80,35 @@ my_case/
 
 If `output_dir` is omitted in a `.input` file, the driver writes to `outputs` relative to the input-file location. In CLI-only mode, the default is `./outputs` relative to the current working directory.
 
+Equation sets are selected in the input file:
+
+```toml
+[equations]
+type = "s09"
+# Optional: use "linear" to omit nonlinear RHS terms while keeping the same
+# timestepper, dissipation, forcing, diagnostics, and outputs.
+mode = "nonlinear"
+```
+
+Available equation sets are:
+
+- `alfvenic`: lightweight two-field Alfvénic system with fields `psi`, `omega`
+- `s09`: homogeneous five-field system with fields `psi`, `omega`, `upar`, `dbpar`, `s`
+- `low_beta_stratified`: three-field system with fields `psi`, `omega`, `a`
+
+The selected equation set determines the evolved field list, so manual dissipation and forcing-amplitude blocks must use the matching field names.
+
+Use `alfvenic` when you only want the Alfvénic turbulence dynamics and do not
+need the slow/entropy sector from `s09`; it reduces memory use and the amount
+of work per timestep. Its equation implementation is intentionally more direct
+and less readable than the other equation sets because this is the performance
+path for large two-field GPU runs.
+
+The optional `[equations] mode = "linear"` switch is useful for tests and
+teaching examples. It runs the same solver workflow and still calls
+`ideal_rhs`, but replaces the Poisson-bracket operator by zero so nonlinear
+terms are omitted. If `mode` is omitted, the default is `"nonlinear"`.
+
 ## Diagnostics Output
 
 Diagnostics are controlled independently through the `[output]` section:
@@ -96,6 +127,10 @@ Outputs are:
 - `scalar_diagnostics.csv`: one row per output time, with `time`, `step`, scalar quantities, and saved budget terms
 - `spectra.csv`: tidy/long CSV with columns `time`, `step`, `quantity`, `kperp`, `value`
 - `fullfields/fullfield_0001.h5`, `fullfield_0002.h5`, ...: one HDF5 snapshot per output time
+
+Scalar diagnostics are split into generic per-field columns such as
+`psi_rms`, `psi_mean`, and `psi_max_abs`, plus equation-specific quantities
+defined by the selected equation module.
 
 The scalar CSV also carries saved conserved-quantity budget columns. For the
 current total-energy budget these include:
@@ -133,6 +168,10 @@ The driver accepts TOML-based `.input` files with sections such as:
 ```toml
 title = "Small forced turbulence test"
 output_dir = "outputs"
+
+[equations]
+type = "s09"
+# mode defaults to "nonlinear"; set mode = "linear" for linearized runs.
 
 [grid]
 Nx = 128
@@ -175,19 +214,26 @@ n_par = 3
 Supported sections are:
 
 - top level: `title`, `output_dir`
+- `[equations]`: `type`
 - `[grid]`: `Nx`, `Ny`, `Nz`, `Lx`, `Ly`, `Lz`
 - `[time]`: `tmax`, `dt_init`, `dt_min`, `dt_max`, `cfl_number`, `use_variable_dt`
 - `[output]`: `t_out_scal`, `t_out_spec`, `t_out_full`
 - `[backend]`: `backend`, `fft_workers`, `real_dtype`, `complex_dtype`
 - `[runtime]`: `runtime_check_every`, `progress_output_every`, `fail_on_nonfinite`, `dealias`, `dealias_mode`
-- `[physics]`: `vA`, `cs2_over_vA2`
+- `[physics]`: `vA`, `cs2_over_vA2`, `N2`
 - `[forcing]` and `[forcing.force_amplitudes]`
 - `[dissipation]` for optional auto-dissipation control
 - `[dissipation.<field>]` for manual per-field dissipation
 - `[initial_condition]`
 
+For the low-beta stratified system, `N2` may be positive or negative. With the
+sign convention used here, `N2 > 0` allows unstable/decaying linear branches,
+while `N2 < 0` gives oscillatory stable branches. `N2 = 0` is still rejected.
+
 Manual dissipation remains the default. In that mode, set per-field blocks such
-as `[dissipation.psi]` and `[dissipation.omega]` exactly as before.
+as `[dissipation.psi]` and `[dissipation.omega]` exactly as before. The valid
+field names come from `[equations].type`; for example `low_beta_stratified`
+accepts `[dissipation.psi]`, `[dissipation.omega]`, and `[dissipation.a]`.
 
 Auto dissipation is useful when you want one common hyperdissipation
 coefficient chosen automatically from the fluctuation amplitude near a target
@@ -225,13 +271,45 @@ Currently supported initial conditions are:
 
 - `initial_condition.type` selects a registered builder in `rmhdgpu.initconds`
 - put initializer-specific options under `[initial_condition.parameters]` (flat keys under `[initial_condition]` still work for compatibility)
-- `type = "alfven_mode"` with `k_indices = [kx, ky, kz]`, `amplitude`, and `branch = "plus"` or `"minus"`
+- `type = "alfven_mode"` with `k_indices = [kx, ky, kz]`, `amplitude`, and `branch = "plus"` or `"minus"`; `amplitude` rescales the mode so `total_energy ~ amplitude^2`
 - `type = "zero"`
 - `type = "aw_packet"`
-- `type = "random_spectrum"` with `n_min`, `n_max`, `alpha`, `init_energy`, and `seed`
+- `type = "random_spectrum"` with `n_min`, `n_max`, `alpha`, `init_energy`, and `seed`; it fills every evolved field with an independent band-limited random spectrum, then rescales the full state so the equation-module `total_energy` matches `init_energy`
+- `type = "single_fourier_mode"` with `k_indices = [kx, ky, kz]`, `amplitude`, and `seed`; it puts independent random coefficients into the same Fourier mode for every evolved field
+- `type = "low_beta_stratified_mode"` for the low-beta stratified linear eigensystem; for `N2 > 0`, `amplitude` rescales the mode so `total_energy ~ amplitude^2`
 
 Adding a new initial condition means adding and registering a builder in
-`rmhdgpu.initconds`.
+`rmhdgpu.initconds`. For equation-specific eigenmodes, keep the reusable
+eigenvector construction in a small module such as
+`rmhdgpu/initconds/eigenmodes_<equation>.py`, and keep `builtin.py` as the
+thin registry layer for input-file selectable names.
+
+Small low-beta stratified example:
+
+```toml
+[equations]
+type = "low_beta_stratified"
+
+[physics]
+vA = 1.0
+N2 = 0.25
+
+[initial_condition]
+type = "low_beta_stratified_mode"
+
+[initial_condition.parameters]
+k_indices = [0, 1, 0]
+mode = "unstable_growing"
+amplitude = 0.02
+
+[dissipation.a]
+nu_perp = 1e-4
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+```
+
+For this equation set, scalar diagnostics include `total_energy_rhs_stratification` in addition to the usual dissipation, forcing, and total RHS budget columns.
 
 ## Example Inputs
 
@@ -242,6 +320,7 @@ The repository root includes ready-to-run example inputs:
 - [`examples/decay_spectra_auto.input`](examples/decay_spectra_auto.input)
 - [`examples/decay_spectra_gpu.input`](examples/decay_spectra_gpu.input)
 - [`examples/forced_turbulence.input`](examples/forced_turbulence.input)
+- [`examples/low_beta_stratified.input`](examples/low_beta_stratified.input)
 
 For example:
 
@@ -249,6 +328,7 @@ For example:
 python -m rmhdgpu.run examples/decay_spectra.input
 python -m rmhdgpu.run examples/decay_spectra_auto.input
 python -m rmhdgpu.run examples/decay_spectra_gpu.input
+python -m rmhdgpu.run examples/low_beta_stratified.input
 ```
 
 ## Plotting Saved Output
@@ -319,7 +399,10 @@ That can override the Conda environment and leave you running `/opt/spack/.../py
 Any Python 3.10+ Conda environment is fine. The example below uses Python 3.10,
 which is the minimum supported version.
 
+It's best to setup the environment from a compute node on Aoraki.
+
 ```bash
+srun --partition=aoraki_gpu_H100 --gres=gpu:1 --cpus-per-task=8 --mem=32G --time=02:00:00 --pty bash
 mkdir -p ~/conda-envs
 conda create -y -p ~/conda-envs/curmpy python=3.10
 conda activate ~/conda-envs/curmpy
@@ -367,10 +450,17 @@ alias activate-curmpy="source ~/bin/activate-curmpy"
 
 ### Interactive workflow
 
+Load an explicit CUDA 12.x module rather than the cluster default if the
+default is newer than the installed NVIDIA driver supports. On the current
+Aoraki H100 nodes checked for this repository, the default `cuda` module points
+to CUDA 13.1 while the driver reports CUDA 12.5 support, so use an available
+CUDA 12.x module such as `cuda/12.5.1-b6iqzzi`. Use `module avail cuda` and
+`nvidia-smi` to check the current names and driver support.
+
 ```bash
 srun --partition=aoraki_gpu_H100 --gres=gpu:1 --cpus-per-task=8 --mem=32G --time=02:00:00 --pty bash
 module purge
-module load cuda
+module load cuda/12.5.1-b6iqzzi
 activate-curmpy
 cd ~/cases/my_forced_case
 python -m pytest ~/path/to/rmhd-gpu/rmhdgpu/tests/test_cupy_backend.py ~/path/to/rmhd-gpu/rmhdgpu/tests/test_gpu_consistency.py
@@ -393,7 +483,7 @@ Minimal job script:
 #SBATCH --time=02:00:00
 
 module purge
-module load cuda
+module load cuda/12.5.1-b6iqzzi
 source ~/.bashrc
 export PYTHONNOUSERSITE=1
 conda activate ~/conda-envs/curmpy
@@ -402,6 +492,7 @@ cd ~/cases/my_forced_case
 python -m rmhdgpu.run input.input --backend cupy
 ```
 
+Make sure you're loading the correct version of cuda, if the default does not work.
 Submit with:
 
 ```bash
@@ -413,10 +504,13 @@ sbatch run_rmhdgpu.slurm
 If something seems wrong:
 
 ```bash
+module list
+nvidia-smi
 which python
 python -V
 python -c "import sys; print(sys.executable)"
 python -c "import numpy, cupy; print(numpy.__version__, cupy.__version__)"
+python -c "import cupy; cupy.show_config()"
 ```
 
 If `which python` points to `/opt/spack/...`, the wrong Python is active.

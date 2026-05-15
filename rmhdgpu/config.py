@@ -154,6 +154,9 @@ class Config:
     vA: float = 1.0
     cs2_over_vA2: float = 1.0
     N2: float = 1.0
+    g: float = 0.0
+    K_p0: float = 0.0
+    K_rho0: float = 0.0
     use_forcing: bool = False
     n_min_force: float = 1.0
     n_max_force: float = 3.0
@@ -283,6 +286,9 @@ class Config:
         self.vA = float(self.vA)
         self.cs2_over_vA2 = float(self.cs2_over_vA2)
         self.N2 = float(self.N2)
+        self.g = float(self.g)
+        self.K_p0 = float(self.K_p0)
+        self.K_rho0 = float(self.K_rho0)
         if not np.isfinite(self.N2):
             raise ValueError(f"N2 must be finite; got {self.N2!r}.")
         if self.N2 == 0.0:
