@@ -38,7 +38,7 @@ dealias_mode = "two_thirds"
 
 [physics]
 vA = 1.0
-cs2_over_vA2 = 1.0
+cs2_over_vA2 = 20.0
 N2 = 1.0
 
 [forcing]
@@ -101,6 +101,6 @@ n_par = 1
 type = "single_fourier_mode"
 
 [initial_condition.parameters]
-k_indices = [0, 1, 2]
+k_indices = [1, 1, 2]
 amplitude = 1e-12
 seed = 0

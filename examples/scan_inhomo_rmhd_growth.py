@@ -37,7 +37,7 @@ INPUT_FILE = THIS_DIR / "nokia_inhomo_linear.input"
 SCAN_DIR = THIS_DIR / "kz_scan"
 RUNS_DIR = SCAN_DIR / "runs"
 SUMMARY_CSV = SCAN_DIR / "gamma_scan.csv"
-PLOT_FILE = SCAN_DIR / "gamma_vs_kpar.png"
+PLOT_FILE = SCAN_DIR / "gamma_vs_kpar3.png"
 
 FIT_TMIN = 1.0
 FIT_TMAX = 6.0
@@ -70,7 +70,7 @@ def main() -> None:
     alpha = chi / (1.0 + chi)
     vS2 = alpha * vA**2
     
-    K_b0 = - chi * K_p0 / GAMMA -  g / vA**2
+    # K_b0 = - chi * K_p0 / GAMMA -  g / vA**2
     N_sq = -g * ( K_rho0 + g /(vA**2 * (1 + chi)) )
 
     base_k_indices = list(initial_parameters.get("k_indices", [0, 1, 0]))
@@ -124,7 +124,7 @@ def main() -> None:
             str(ky_index),
             "--mode-kz",
             str(kz_index),
-        ]
+        ] 
 
         print()
         print(f"Running kz index {kz_index}...")
@@ -205,7 +205,7 @@ def main() -> None:
 
     theory_kpar = np.linspace(0, 2 * np.pi * kz_max / lz, 400)
     ky2_over_kperp2 = ky**2 / kperp**2
-
+ 
     A = theory_kpar**2 * vS2
     B = theory_kpar**2 * vA**2 - ky2_over_kperp2 * N_sq
     # C = ky2_over_kperp2 * theory_kpar**2 * vS2**4 * g**2 / cs2**4
@@ -225,7 +225,12 @@ def main() -> None:
     ax.axhline(0.0, color="0.6", lw=1.0, ls="--")
     ax.set_xlabel(r"$k_\parallel$")
     ax.set_ylabel(r"$\gamma$")
-    ax.set_title("Inhomogeneous RMHD linear growth scan")
+    param_str = (
+    rf"$K_{{\rho 0}}={K_rho0:g}$, $K_{{p 0}}={K_p0:g}$, $\chi={chi:g}$, $g={g:g}$, "
+    rf"$v_A={vA:g}$, $k_x={kx:g}$, $k_y={ky:g}$, $N^2={N_sq:.3g}$"
+    )
+    ax.set_title("Inhomogeneous RMHD linear growth scan\n" + param_str)
+    # ax.set_title("Inhomogeneous RMHD linear growth scan. ")
     ax.grid(True, alpha=0.3)
     ax.legend()
     fig.savefig(PLOT_FILE, dpi=200)

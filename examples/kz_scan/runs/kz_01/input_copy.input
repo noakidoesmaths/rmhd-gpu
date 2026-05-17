@@ -40,15 +40,15 @@ backend = "numpy"
 
 [physics]
 vA = 1.0
-cs2_over_vA2 = 1.0
-g = 1.0
-K_p0 = -3.0
-K_rho0 = -10.0
+cs2_over_vA2 = 20
+g = 13.0
+K_p0 = -100.0
+K_rho0 = -5.0
 
 [initial_condition]
 type = "single_fourier_mode"
 [initial_condition.parameters]
-k_indices = [0, 1, 0]
+k_indices = [1, 1, 0]
 amplitude = 0.000000000001
 
 [runtime]
