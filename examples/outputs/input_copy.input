@@ -1,0 +1,51 @@
+# `.input` files use TOML syntax.
+#
+# This reproduces the old `sanity_aw_packet` test as a normal case input.
+# The built-in `aw_packet` initializer creates the same large-amplitude
+# packet used there: a smooth `phi = psi` superposition of the first three
+# modes in each direction, normalized to unit RMS.
+#
+# Use:
+#   python -m rmhdgpu.run examples/aw_packet.input
+#   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
+
+title = "Qualitative Alfvén-wave packet translation"
+output_dir = "outputs"
+
+[equations]
+type = "s09"
+
+[grid]
+Nx = 16
+Ny = 16
+Nz = 16
+
+[time]
+# The old sanity script advanced to 0.5 Alfven times. With the default
+# periodic box and vA = 1, that is t = pi.
+tmax = 3.141592653589793
+dt_init = 7.0e-4
+use_variable_dt = false
+
+[output]
+t_out_scal = 0.3141592653589793
+t_out_spec = 0.0
+t_out_full = 0.0
+
+[backend]
+backend = "numpy"
+
+[physics]
+vA = 1.0
+cs2_over_vA2 = 1.0
+
+[initial_condition]
+type = "aw_packet"
+
+[runtime]
+progress_output_every = 100
+
+# This run is ideal, so the default zero dissipation is retained.
+# Set `t_out_full > 0` to write `fullfields/fullfield_0001.h5`, etc.,
+# when `h5py` is installed.

@@ -24,6 +24,7 @@ Nz = 16
 [time]
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
+
 tmax = 3.141592653589793
 dt_init = 7.0e-4
 use_variable_dt = false

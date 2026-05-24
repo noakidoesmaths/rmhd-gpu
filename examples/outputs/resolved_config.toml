@@ -1,3 +1,4 @@
+title = "Qualitative Alfvén-wave packet translation"
 output_dir = "outputs"
 
 [equations]
@@ -13,13 +14,13 @@ Ly = 6.283185307179586
 Lz = 6.283185307179586
 
 [time]
-tmax = 1.0
-dt_init = 0.01
+tmax = 3.141592653589793
+dt_init = 0.0007
 cfl_number = 0.3
-use_variable_dt = true
+use_variable_dt = false
 
 [output]
-t_out_scal = 0.1
+t_out_scal = 0.3141592653589793
 t_out_spec = 0.0
 t_out_full = 0.0
 
@@ -97,9 +98,4 @@ n_perp = 3
 n_par = 3
 
 [initial_condition]
-type = "alfven_mode"
-
-[initial_condition.parameters]
-k_indices = [1, 1, 1]
-amplitude = 1.0
-branch = "plus"
+type = "aw_packet"

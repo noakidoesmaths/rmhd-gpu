@@ -37,10 +37,10 @@ INPUT_FILE = THIS_DIR / "nokia_inhomo_linear.input"
 SCAN_DIR = THIS_DIR / "kz_scan"
 RUNS_DIR = SCAN_DIR / "runs"
 SUMMARY_CSV = SCAN_DIR / "gamma_scan.csv"
-PLOT_FILE = SCAN_DIR / "gamma_vs_kpar3.png"
+PLOT_FILE = SCAN_DIR / "gamma_vs_kpar71.png"
 
-FIT_TMIN = 1.0
-FIT_TMAX = 6.0
+FIT_TMIN = 15.0
+FIT_TMAX = 18.0
 
 
 def main() -> None:
@@ -70,8 +70,8 @@ def main() -> None:
     alpha = chi / (1.0 + chi)
     vS2 = alpha * vA**2
     
-    # K_b0 = - chi * K_p0 / GAMMA -  g / vA**2
-    N_sq = -g * ( K_rho0 + g /(vA**2 * (1 + chi)) )
+    K_b0 = -(chi * K_p0)/(GAMMA) - g/vA**2
+    N_sq = -g * (K_rho0 + g /(vA**2 * (1 + chi)) )
 
     base_k_indices = list(initial_parameters.get("k_indices", [0, 1, 0]))
     if len(base_k_indices) != 3:
@@ -208,26 +208,22 @@ def main() -> None:
  
     A = theory_kpar**2 * vS2
     B = theory_kpar**2 * vA**2 - ky2_over_kperp2 * N_sq
-    # C = ky2_over_kperp2 * theory_kpar**2 * vS2**4 * g**2 / cs2**4
     C = ky2_over_kperp2 * theory_kpar**2 * vS2**2 * g**2 / cs2**2
 
     disc = np.sqrt((A - B)**2 + 4 * C)
-    xi_plus = 0.5 * (A + B + disc)
     xi_minus = 0.5 * (A + B - disc)
 
-    gamma_plus = np.sqrt(np.clip(-xi_plus, 0.0, None))
     gamma_minus = np.sqrt(np.clip(-xi_minus, 0.0, None))
 
     fig, ax = plt.subplots(figsize=(7.0, 4.8), constrained_layout=True)
-    ax.plot(theory_kpar, gamma_plus, lw=2.0, label=r"Linear DR: $\gamma^+ = \sqrt{\max(\gamma^2, 0)}$")
-    ax.plot(theory_kpar, gamma_minus, lw=2.0, label=r"Linear DR: $\gamma- = \sqrt{\max(\gamma^2, 0)}$")
+    ax.plot(theory_kpar, gamma_minus, lw=2.0, label=r"Linear DR: $\gamma^- = \sqrt{\max(\xi^2, 0)}$")
     ax.plot(measured_kpar, measured_gamma, "o", ms=6, label="Measured from runs")
     ax.axhline(0.0, color="0.6", lw=1.0, ls="--")
     ax.set_xlabel(r"$k_\parallel$")
     ax.set_ylabel(r"$\gamma$")
     param_str = (
-    rf"$K_{{\rho 0}}={K_rho0:g}$, $K_{{p 0}}={K_p0:g}$, $\chi={chi:g}$, $g={g:g}$, "
-    rf"$v_A={vA:g}$, $k_x={kx:g}$, $k_y={ky:g}$, $N^2={N_sq:.3g}$"
+    rf"$K_{{\rho 0}}={K_rho0:g}$, $\chi={chi:g}$, $g={g:g}$, "
+    rf"$v_A={vA:g}$, $k_x={kx:3g}$, $k_y={ky:3g}$"
     )
     ax.set_title("Inhomogeneous RMHD linear growth scan\n" + param_str)
     # ax.set_title("Inhomogeneous RMHD linear growth scan. ")

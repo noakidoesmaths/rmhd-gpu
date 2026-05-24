@@ -19,15 +19,15 @@ type = "inhomogeneous_rmhd"
 mode = "linear"
 
 [grid]
-Nx = 16
-Ny = 16
-Nz = 16
+Nx = 32
+Ny = 32
+Nz = 32
 
 [time]
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
-tmax = 6
-dt_init = 7.0e-4
+tmax = 20.0
+dt_init = 0.1
 use_variable_dt = false
 
 [output]
@@ -40,15 +40,15 @@ backend = "numpy"
 
 [physics]
 vA = 1.0
-cs2_over_vA2 = 20
-g = 13.0
-K_p0 = -100.0
-K_rho0 = -5.0
+K_rho0 = -13.8
+cs2_over_vA2 = 0.57
+K_p0 = 20
+g = 2.4
 
 [initial_condition]
 type = "single_fourier_mode"
 [initial_condition.parameters]
-k_indices = [1, 1, 0]
+k_indices = [3, 2, 0]
 amplitude = 0.000000000001
 
 [runtime]
