@@ -1,0 +1,106 @@
+title = "Inhomogeneous rmhd simulation test"
+output_dir = "C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs\\kz_09"
+
+[equations]
+type = "inhomogeneous_rmhd"
+mode = "linear"
+
+[grid]
+Nx = 32
+Ny = 32
+Nz = 32
+Lx = 6.283185307179586
+Ly = 6.283185307179586
+Lz = 6.283185307179586
+
+[time]
+tmax = 20.0
+dt_init = 0.1
+cfl_number = 0.3
+use_variable_dt = false
+
+[output]
+t_out_scal = 0.3141592653589793
+t_out_spec = 0.0
+t_out_full = 0.0
+
+[backend]
+backend = "numpy"
+real_dtype = "float64"
+complex_dtype = "complex128"
+
+[runtime]
+runtime_check_every = 10
+progress_output_every = 100
+fail_on_nonfinite = true
+dealias = true
+dealias_mode = "two_thirds"
+
+[physics]
+vA = 1.0
+cs2_over_vA2 = 0.57
+N2 = 1.0
+
+[forcing]
+use_forcing = false
+n_min_force = 1.0
+n_max_force = 3.0
+alpha_force = 0.0
+
+[forcing.force_amplitudes]
+psi = 0.0
+omega = 0.0
+du_par = 0.0
+db_par = 0.0
+drho = 0.0
+
+[dissipation]
+mode = "manual"
+n_perp = 3
+n_par = 3
+nu_par = 0.0
+kd_fraction = 0.6
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1e-12
+nu_max = 100.0
+max_update_factor = 2.0
+
+[dissipation.psi]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.omega]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.du_par]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.db_par]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.drho]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[initial_condition]
+type = "single_fourier_mode"
+
+[initial_condition.parameters]
+k_indices = [3, 2, 9]
+amplitude = 1e-12
+seed = 0
