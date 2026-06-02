@@ -13,7 +13,7 @@ Fourier conventions used throughout the solver:
 - `lap_perp(f_hat) = -k_perp^2 f_hat`
 - `inv_lap_perp(f_hat) = -inv_kperp2 f_hat`
 
-The evolved fields are `[psi, omega, du_par, db_par, drho]`, with
+The evolved fields are `[psi, omega, du_par, db_par, s]`, with
 `phi = inv_lap_perp(omega)`. The inhomogeneous ideal equations are
 
 
@@ -21,21 +21,19 @@ The evolved fields are `[psi, omega, du_par, db_par, drho]`, with
 - `omega_t = vA * dz(lap_perp psi) - {phi, omega} + {psi, lap_perp psi} 
     - g dy(delta rho/rho_0)`
 - ` (db_par)_t = alpha * dz(du_par) + alpha/vA{psi, du_par} - {Phi, db_par} 
-      - alpha*K_B0 * dy(phi) + alpha*K_p0/gamma *dy(phi) `
-- `(du_par)_t = vA^2 dz(db_par) + vA{psi, db_par} - {Phi, du_par} + vA*K_B0 dy(psi) `
--  (delta rho/rho0)_t = -alpha/chi * dz(du_par) -alpha/vA*chi * {psi, du_par}
-    -alpha/chi * K_B0 dy(phi) + K_rho0 dy(phi) - alpha/chi * K_p0 dy(phi) - {phi, delta rho/rho0}
-- 
+      + alpha*K_B0 * dy(phi) - alpha*K_p0/gamma *dy(phi) `
+- `(du_par)_t = vA^2 dz(db_par) + vA{psi, db_par} - {Phi, du_par} - vA*K_B0 dy(psi) `
+-  (s)_t = K_s * dy(phi) - {phi,s}
 
 
 
-note we use the convention db_par = delta B / B_0, drho = delta rho/rho_0
+note we use the convention db_par = delta B / B_0, s = delta s/cv
 alpha = chi/(1+chi)   chi = cs^2/vA^2 
 the background gradients K_B and K_p as well as the gravity g
 can be considered a constant. 
 
 we choose g and K_p then set
-K_B = 2chi/gamma K_p_0 + 2g/vA^2
+K_B = chi/gamma K_p_0 + g/vA^2
 
 """
 
@@ -55,8 +53,8 @@ from rmhdgpu.diagnostics.spectra import perpendicular_shell_spectrum
 from rmhdgpu.state import State
 
 
-EQUATION_SET_NAME = "inhomo_rmhd"
-FIELD_NAMES = ["psi", "omega", "du_par", "db_par", "drho"]
+EQUATION_SET_NAME = "inhomo_rmhd_s"
+FIELD_NAMES = ["psi", "omega", "du_par", "db_par", "s"]
 DEFAULT_INITIAL_CONDITION = "alfven_mode"
 DIAGNOSTIC_GAMMA = 5.0 / 3.0
 
@@ -85,9 +83,11 @@ class inhomo_rmhd_parameters:
     K_b0: float
     K_rho0: float
     dbpar_energy_weight: float
+    entropy_energy_weight: float
     N_sq: float
     K_s: float 
     cs2: float
+
 
 def _param_float(params: Any, name: str) -> float:
     if isinstance(params, Mapping):
@@ -119,9 +119,10 @@ def derived_parameters(params: Any) -> inhomo_rmhd_parameters:
     vS2 = alpha * vA**2
     
     N_sq = g * (vS2/cs2 *(K_b0 + chi * K_p0/gamma) - K_rho0)
-    
-    
-    dbpar_energy_weight = 1 / alpha
+
+    dbpar_energy_weight = vA**2 / alpha
+    entropy_energy_weight = cs2/(gamma**2 * (gamma - 1))
+
     K_s = K_p0 - gamma * K_rho0
     return inhomo_rmhd_parameters(
         vA=vA,
@@ -133,6 +134,7 @@ def derived_parameters(params: Any) -> inhomo_rmhd_parameters:
         K_b0=K_b0,
         K_rho0=K_rho0,
         dbpar_energy_weight = dbpar_energy_weight,
+        entropy_energy_weight=entropy_energy_weight,
         N_sq=N_sq,
         K_s=K_s,
         cs2=cs2
@@ -150,12 +152,11 @@ def derive_j_hat(psi_hat: Any, grid: Any) -> Any:
 
     return -lap_perp(psi_hat, grid)
 
-def derive_s_hat(drho_hat: Any, dbpar_hat: Any, params: Any) -> Any:
+def derive_drho_hat(s_hat: Any, dbpar_hat: Any, params: Any) -> Any:
     """Derives drho using s and db_par."""
 
     p = derived_parameters(params)
-    return - drho_hat/p.gamma - dbpar_hat/ p.chi  
-
+    return - s_hat/p.gamma - dbpar_hat/ p.chi  
 
 def characteristic_speeds(params: Any) -> list[float]:
     """Return parallel linear speeds relevant to the CFL estimate."""
@@ -181,15 +182,16 @@ def ideal_rhs(
     omega_hat = state["omega"]
     du_par_hat = state["du_par"]
     dbpar_hat = state["db_par"]
-    drho_hat = state["drho"]
+    s_hat = state["s"]
 
     phi_hat = derive_phi_hat(omega_hat, grid)
     lap_psi_hat = lap_perp(psi_hat, grid)
+    drho_hat = derive_drho_hat(s_hat, dbpar_hat, params)
 
     rhs_state = state.zeros_like() if out is None else out
     rhs_state.fill_zero()
 
-    "psi_t = vA * dz(phi) - {phi, psi}"
+    " psi_t = vA * dz(phi) - {phi, psi} "
     rhs_psi = rhs_state["psi"]
     rhs_psi[...] = p.vA * dz(phi_hat, grid)
     rhs_psi[...] -= poisson_bracket(
@@ -203,7 +205,7 @@ def ideal_rhs(
 
     """
     `omega_t = vA * dz(lap_perp psi) - {phi, omega} + {psi, lap_perp psi} 
-    - g dy(delta rho/rho_0)` 
+    - g dy(delta rho/rho_0)`
     """
     rhs_omega = rhs_state["omega"]
     rhs_omega[...] = p.vA * dz(lap_psi_hat, grid)
@@ -225,10 +227,11 @@ def ideal_rhs(
     )
     rhs_omega[...] -= p.g * dy(drho_hat, grid)
 
-    "(du_par)_t = vA^2 dz(db_par) + vA{psi, db_par} - {Phi, du_par} + vA*K_B0 dy(psi) "
+
+    "(du_par)_t = vA^2 dz(db_par) + vA{psi, db_par} - {Phi, du_par} - vA * K_B0 dy(psi) "
 
     rhs_dupar = rhs_state["du_par"]
-    rhs_dupar[...] = (p.vA**2) * dz(dbpar_hat, grid)
+    rhs_dupar[...] = (p.vA)**2 * dz(dbpar_hat, grid)
     rhs_dupar[...] += (p.vA) * poisson_bracket(
         psi_hat,
         dbpar_hat,
@@ -249,7 +252,7 @@ def ideal_rhs(
 
     """
     (db_par)_t = alpha * dz(du_par) + alpha/vA * {psi, du_par} - {Phi, db_par} 
-      - alpha*K_B0 * dy(phi) + alpha*K_p0/gamma *dy(phi) 
+      + alpha*K_B0 * dy(phi) - alpha*K_p0/gamma *dy(phi) 
     """
 
     rhs_dbpar = rhs_state["db_par"]
@@ -271,36 +274,21 @@ def ideal_rhs(
         mask=dealias_mask,
     )
     rhs_dbpar[...] += p.alpha * p.K_b0 * dy(phi_hat, grid)
-    rhs_dbpar[...] -= p.alpha * p.K_p0/p.gamma * dy(phi_hat, grid)
+    rhs_dbpar[...] -= p.alpha * p.K_p0 / p.gamma * dy(phi_hat, grid)
 
     """
-    (delta rho/rho0)_t = -alpha/chi * dz(du_par) - alpha/(vA*chi) * {psi, du_par}
-    -alpha/chi * K_B0 dy(phi) + K_rho0 dy(phi) 
-    - alpha/chi * K_p0 dy(phi) - {phi, delta rho/rho0}
+    (s)_t = K_s0 * dy(phi) - {Phi, s}
     """
-    rhs_drho = rhs_state["drho"]
-    rhs_drho[...] = -p.alpha/p.chi * dz(du_par_hat, grid)
-    rhs_drho[...] -= p.alpha/(p.vA * p.chi) * poisson_bracket(
-        psi_hat,
-        du_par_hat,
-        grid,
-        fft,
-        workspace,
-        mask=dealias_mask,
-    )
-    rhs_drho[...] -= p.alpha /  p.chi * p.K_b0 * dy(phi_hat, grid)
-    rhs_drho[...] += p.K_rho0 * dy(phi_hat, grid)
-    rhs_drho[...] -= p.alpha / p.gamma * p.K_p0* dy(phi_hat, grid)
-    rhs_drho[...] -= poisson_bracket(
+    rhs_s = rhs_state["s"]
+    rhs_s[...] = p.K_s * dy(phi_hat, grid)
+    rhs_s[...] -= poisson_bracket(
         phi_hat,
-        drho_hat,
+        s_hat,
         grid,
         fft,
         workspace,
         mask=dealias_mask,
     )
-
-
 
     return rhs_state
 
@@ -396,7 +384,6 @@ def perpendicular_energy_spectra(
     xp = backend.xp
     p = derived_parameters(params)
     phi_hat = derive_phi_hat(state["omega"], grid)
-    rho_hat = derive_drho_hat(state["s"], state["db_par"], p)
     kperp2 = grid.kperp2
 
     kperp, u_perp = perpendicular_shell_spectrum(
@@ -423,8 +410,8 @@ def perpendicular_energy_spectra(
         backend,
         bin_width=bin_width,
     )
-    _, drho = perpendicular_shell_spectrum(
-        0.5 * (xp.abs(state["drho"]) ** 2),
+    _, s = perpendicular_shell_spectrum(
+        0.5 * p.entropy_energy_weight * (xp.abs(state["s"]) ** 2),
         grid,
         backend,
         bin_width=bin_width,
@@ -435,7 +422,7 @@ def perpendicular_energy_spectra(
         "b_perp": b_perp,
         "du_par": du_par,
         "db_par": db_par,
-        "drho": drho,
+        "s": s,
     }
 
 
@@ -450,8 +437,7 @@ def total_energy_modal_density(state: State, grid: Any, backend: Any, params: An
     In code variables:
 
     `E = 0.5 * (|grad_perp phi|^2 + |grad_perp psi|^2 + |upar|^2`
-    `           + alpha^(-1) |dbpar|^2 + 
-                |rho|^2 `)`
+    `           + vA^2/alpha |dbpar|^2 + cs^2/gamma^2(gamma - 1) |s|^2 `)`
 
     with `gamma = 5/3`.
     """
@@ -463,7 +449,7 @@ def total_energy_modal_density(state: State, grid: Any, backend: Any, params: An
         0.5 * grid.kperp2 * (xp.abs(phi_hat) ** 2 + xp.abs(state["psi"]) ** 2)
         + 0.5 * xp.abs(state["du_par"]) ** 2
         + 0.5 * p.dbpar_energy_weight * xp.abs(state["db_par"]) ** 2
-        + 0.5 * xp.abs(state["drho"]) ** 2
+        + 0.5 * p.entropy_energy_weight * xp.abs(state["s"]) ** 2 
     )
 
 
@@ -492,26 +478,30 @@ def total_energy_stratification_rhs(state: State, grid: Any, backend: Any, param
     Return the source term of the energy (Y)
     
     Y = 
-    (KB * vA^2 - gamma * vA^2 * Kp - vA^2 * Ks/(gamma*(gamma - 1)))<db_par dy(phi)> 
-    (-vA * KB)<du_par dy(phi)>
-    ( g - (cs^2 * Ks)/(gamma(gamma - 1)) )< drho dy(phi)>
+    (KB * vA^2 -  vA^2 * Kp/gamma + g/chi)<db_par * dy(phi)> 
+    
+    (-vA * KB)<du_par * dy(psi)>
+    
+    (g/gamma + cs^2 * Ks/(gamma^2 *(gamma - 1))< s * dy(phi)>
     """
 
     p = derived_parameters(params)
 
+    psi_hat = state["psi"]
     phi_hat = derive_phi_hat(state["omega"], grid)
     dyphi_hat = dy(phi_hat, grid)
+    dypsi_hat = dy(psi_hat, grid)
     
-    du_prl_avg = modal_inner_product_average(dyphi_hat, state["du_par"], grid, backend)
+    du_prl_avg = modal_inner_product_average(dypsi_hat, state["du_par"], grid, backend)
     du_prl_weight = -p.vA * p.K_b0
     
     db_prl_avg = modal_inner_product_average(dyphi_hat, state["db_par"], grid, backend)
-    db_prl_weight = p.K_b0 * p.vA**2 - p.gamma * p.vA**2 * p.K_p0 - p.vA**2 * p.K_s /(p.gamma * (p.gamma - 1))
+    db_prl_weight = p.K_b0 * p.vA**2 -  p.vA**2 * p.K_p0 / p.gamma + p.g/p.chi
 
-    drho_avg = modal_inner_product_average(dyphi_hat, state["drho", grid, backend])
-    drho_weight = p.g - p.chi * p.vA**2 * p.K_s/(p.gamma * (p.gamma - 1))
+    ds_avg = modal_inner_product_average(dyphi_hat, state["s"], grid, backend)
+    ds_weight = p.g/p.gamma + p.cs2 * p.K_s/(p.gamma**2 * (p.gamma - 1))
 
-    return db_prl_avg * db_prl_weight + du_prl_avg * du_prl_weight + drho_avg * drho_weight
+    return db_prl_avg * db_prl_weight + du_prl_avg * du_prl_weight + ds_avg * ds_weight
 
 def total_energy_dissipation_rhs(
     state: State,
@@ -554,7 +544,9 @@ def compute_conserved_quantity_budgets(
 ) -> dict[str, dict[str, Any]]:
     """Return conserved-quantity values plus named signed RHS contributions."""
 
-    rhs_terms: dict[str, float] = {}
+    rhs_terms: dict[str, float] = {
+        "stratification": total_energy_stratification_rhs(state, grid, backend, params)
+    }
     if linear_ops is not None:
         rhs_terms["dissipation"] = total_energy_dissipation_rhs(
             state,

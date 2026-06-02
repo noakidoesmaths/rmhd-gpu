@@ -9,14 +9,12 @@
 #   python -m rmhdgpu.run examples/aw_packet.input
 #   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
 #   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
-#
 
 title = "Inhomogeneous rmhd simulation test"
-output_dir = "outputs"
+output_dir = "outputs_nokia_rmhd_s_4"
 
 [equations]
 type = "inhomogeneous_rmhd_s"
-mode = "linear"
 
 [grid]
 Nx = 16
@@ -26,8 +24,9 @@ Nz = 16
 [time]
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
-tmax = 20.0
-dt_init = 0.01
+
+tmax = 3.141592653589793
+dt_init = 1.0e-2
 use_variable_dt = false
 
 [output]
@@ -40,16 +39,13 @@ backend = "numpy"
 
 [physics]
 vA = 1.0
-cs2_over_vA2 = 0.87
-K_rho0 = 3
-K_p0 = -10000
-g = 7.15
+cs2_over_vA2 = 0.38
+g = 2.45
+K_p0 = 4.2
+K_rho0 = 9.8
 
 [initial_condition]
-type = "single_fourier_mode"
-[initial_condition.parameters]
-k_indices = [3, 3, 0]
-amplitude = 0.000000000001
+type = "aw_packet"
 
 [runtime]
 progress_output_every = 100

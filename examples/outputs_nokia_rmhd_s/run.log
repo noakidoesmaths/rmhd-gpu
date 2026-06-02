@@ -1,0 +1,46 @@
+2026-06-02T15:13:48+12:00 run start {'title': 'Inhomogeneous rmhd simulation test', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\nokias_inhomogeneous.input', 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\outputs_nokia_rmhd_s', 'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd_s', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.3141592653589793, 'spectra': 0.0, 'full_field': 0.0}, 'hostname': 'Naoki', 'python_executable': 'C:\\Users\\naoki\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'git_commit': 'a211abc404ec790c0310bdd2fec73347fbab80e8', 'command': "'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\run.py' '.\\examples\\nokias_inhomogeneous.input'"}
+2026-06-02T15:13:48+12:00 run setup {'resolved_output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\outputs_nokia_rmhd_s', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\nokias_inhomogeneous.input', 'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd_s', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.3141592653589793, 'spectra': 0.0, 'full_field': 0.0}, 'dissipation_mode': 'manual', 'initial_condition': {'type': 'aw_packet'}}
+2026-06-02T15:13:48+12:00 scalar diagnostics {'step': 0, 'time': 0.0, 'dt': 0.0, 'total_energy': 6.79727771704669}
+2026-06-02T15:13:49+12:00 progress {'step': 100, 'time': 0.10000000000000007, 'dt': 0.001}
+2026-06-02T15:13:50+12:00 progress {'step': 200, 'time': 0.20000000000000015, 'dt': 0.001}
+2026-06-02T15:13:51+12:00 progress {'step': 300, 'time': 0.3000000000000002, 'dt': 0.001}
+2026-06-02T15:13:51+12:00 scalar diagnostics {'step': 315, 'time': 0.3150000000000002, 'dt': 0.001, 'total_energy': 8740.31215370374}
+2026-06-02T15:13:52+12:00 progress {'step': 400, 'time': 0.4000000000000003, 'dt': 0.001}
+2026-06-02T15:13:53+12:00 progress {'step': 500, 'time': 0.5000000000000003, 'dt': 0.001}
+2026-06-02T15:13:54+12:00 progress {'step': 600, 'time': 0.6000000000000004, 'dt': 0.001}
+2026-06-02T15:13:54+12:00 scalar diagnostics {'step': 629, 'time': 0.6290000000000004, 'dt': 0.001, 'total_energy': 35976.64924437216}
+2026-06-02T15:13:55+12:00 progress {'step': 700, 'time': 0.7000000000000005, 'dt': 0.001}
+2026-06-02T15:13:56+12:00 progress {'step': 800, 'time': 0.8000000000000006, 'dt': 0.001}
+2026-06-02T15:13:57+12:00 progress {'step': 900, 'time': 0.9000000000000007, 'dt': 0.001}
+2026-06-02T15:13:58+12:00 scalar diagnostics {'step': 943, 'time': 0.9430000000000007, 'dt': 0.001, 'total_energy': 42559.70712095869}
+2026-06-02T15:13:58+12:00 progress {'step': 1000, 'time': 1.0000000000000007, 'dt': 0.001}
+2026-06-02T15:13:59+12:00 progress {'step': 1100, 'time': 1.0999999999999897, 'dt': 0.001}
+2026-06-02T15:14:00+12:00 progress {'step': 1200, 'time': 1.1999999999999786, 'dt': 0.001}
+2026-06-02T15:14:01+12:00 scalar diagnostics {'step': 1257, 'time': 1.2569999999999724, 'dt': 0.001, 'total_energy': 40654.42020540164}
+2026-06-02T15:14:01+12:00 progress {'step': 1300, 'time': 1.2999999999999676, 'dt': 0.001}
+2026-06-02T15:14:02+12:00 progress {'step': 1400, 'time': 1.3999999999999566, 'dt': 0.001}
+2026-06-02T15:14:03+12:00 progress {'step': 1500, 'time': 1.4999999999999456, 'dt': 0.001}
+2026-06-02T15:14:04+12:00 scalar diagnostics {'step': 1571, 'time': 1.5709999999999378, 'dt': 0.001, 'total_energy': 39814.66913415485}
+2026-06-02T15:14:04+12:00 progress {'step': 1600, 'time': 1.5999999999999346, 'dt': 0.001}
+2026-06-02T15:14:05+12:00 progress {'step': 1700, 'time': 1.6999999999999236, 'dt': 0.001}
+2026-06-02T15:14:07+12:00 progress {'step': 1800, 'time': 1.7999999999999126, 'dt': 0.001}
+2026-06-02T15:14:07+12:00 scalar diagnostics {'step': 1885, 'time': 1.8849999999999032, 'dt': 0.001, 'total_energy': 38850.32889114907}
+2026-06-02T15:14:08+12:00 progress {'step': 1900, 'time': 1.8999999999999015, 'dt': 0.001}
+2026-06-02T15:14:09+12:00 progress {'step': 2000, 'time': 1.9999999999998905, 'dt': 0.001}
+2026-06-02T15:14:10+12:00 progress {'step': 2100, 'time': 2.0999999999998797, 'dt': 0.001}
+2026-06-02T15:14:11+12:00 progress {'step': 2200, 'time': 2.1999999999998687, 'dt': 0.001}
+2026-06-02T15:14:11+12:00 scalar diagnostics {'step': 2200, 'time': 2.1999999999998687, 'dt': 0.001, 'total_energy': 48007.624350730126}
+2026-06-02T15:14:12+12:00 progress {'step': 2300, 'time': 2.2999999999998577, 'dt': 0.001}
+2026-06-02T15:14:13+12:00 progress {'step': 2400, 'time': 2.3999999999998467, 'dt': 0.001}
+2026-06-02T15:14:14+12:00 progress {'step': 2500, 'time': 2.4999999999998357, 'dt': 0.001}
+2026-06-02T15:14:14+12:00 scalar diagnostics {'step': 2514, 'time': 2.513999999999834, 'dt': 0.001, 'total_energy': 1886737835.6538284}
+2026-06-02T15:14:15+12:00 progress {'step': 2600, 'time': 2.5999999999998247, 'dt': 0.001}
+2026-06-02T15:14:16+12:00 progress {'step': 2700, 'time': 2.6999999999998137, 'dt': 0.001}
+2026-06-02T15:14:17+12:00 progress {'step': 2800, 'time': 2.7999999999998026, 'dt': 0.001}
+2026-06-02T15:14:17+12:00 scalar diagnostics {'step': 2828, 'time': 2.8279999999997996, 'dt': 0.001, 'total_energy': 377016592915649.5}
+2026-06-02T15:14:18+12:00 progress {'step': 2900, 'time': 2.8999999999997916, 'dt': 0.001}
+2026-06-02T15:14:19+12:00 progress {'step': 3000, 'time': 2.9999999999997806, 'dt': 0.001}
+2026-06-02T15:14:20+12:00 progress {'step': 3100, 'time': 3.0999999999997696, 'dt': 0.001}
+2026-06-02T15:14:21+12:00 progress {'step': 3142, 'time': 3.141592653589793, 'dt': 0.000592653590028025}
+2026-06-02T15:14:21+12:00 scalar diagnostics {'step': 3142, 'time': 3.141592653589793, 'dt': 0.000592653590028025, 'total_energy': 7.41967899463844e+19}
+2026-06-02T15:14:21+12:00 run complete {'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd_s', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'steps': 3142, 't_final': 3.141592653589793, 'dt_last': 0.000592653590028025, 'total_energy_initial': 6.79727771704669, 'total_energy_final': 7.41967899463844e+19, 'psi_hat_max_abs': 8327.083755794636, 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\outputs_nokia_rmhd_s', 'scalar_diagnostics_csv': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\outputs_nokia_rmhd_s\\scalar_diagnostics.csv'}

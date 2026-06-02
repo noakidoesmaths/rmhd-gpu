@@ -17,7 +17,8 @@ _EQUATION_MODULES: dict[str, str] = {
     "alfvenic": "rmhdgpu.equations.alfvenic",
     "s09": "rmhdgpu.equations.s09",
     "low_beta_stratified": "rmhdgpu.equations.low_beta_stratified",
-    "inhomogeneous_rmhd": "rmhdgpu.equations.rmhd_by_nokia"
+    "inhomogeneous_rmhd_rho": "rmhdgpu.equations.rmhd_by_nokia",
+    "inhomogeneous_rmhd_s": "rmhdgpu.equations.rmhd_by_nokia_s"
 }
 
 
