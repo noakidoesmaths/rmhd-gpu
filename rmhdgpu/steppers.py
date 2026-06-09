@@ -142,6 +142,23 @@ def state_fieldwise_divide(
     return result
 
 
+def project_out_kpar0(state: State, grid: Any) -> State:
+    """Zero the `k_parallel = 0` plane of every field, in place.
+
+    The `k_par = 0`, `k_perp != 0` subspace is marginal in the
+    inhomogeneous_rmhd(_s) equations: there `psi` is frozen and `du_par` is
+    driven secularly by `-vA*K_b0*dy(psi)` with no `dz` restoring, so its energy
+    grows like `t^2`. A nonlinear run repopulates this plane from `k_par != 0`
+    bracket interactions (`k1z + k2z = 0`), so it must be re-projected out each
+    step. In `rfftn` storage the plane is exactly the `grid.kz == 0` slab.
+    """
+
+    kpar_nonzero = grid.kz != 0
+    for name in state.field_names:
+        state[name][...] *= kpar_nonzero
+    return state
+
+
 def _build_exponential_factors(
     state: State,
     linear_ops: dict[str, Any],
@@ -402,6 +419,10 @@ def evolve_until(
     if getattr(params_obj, "fail_on_nonfinite", True):
         check_state_finite(current, current.backend, time=t, step=steps, context="time integration startup")
 
+    project_kpar0 = bool(getattr(params_obj, "project_kpar0", False))
+    if project_kpar0:
+        project_out_kpar0(current, grid)
+
     while t < t_final - 1.0e-15:
         if fixed_dt is not None:
             dt = fixed_dt
@@ -435,6 +456,8 @@ def evolve_until(
                 ),
             )
             current = apply_forcing_kick(current, forcing_kick, inplace=True)
+        if project_kpar0:
+            project_out_kpar0(current, grid)
         t += dt
         dt_prev = dt
         steps += 1

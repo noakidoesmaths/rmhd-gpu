@@ -1,4 +1,4 @@
-title = "Qualitative Alfvén-wave packet translation"
+title = "Qualitative decaying turbulence spectra (auto dissipation)"
 output_dir = "outputs"
 
 [equations]
@@ -14,18 +14,20 @@ Ly = 6.283185307179586
 Lz = 6.283185307179586
 
 [time]
-tmax = 3.141592653589793
-dt_init = 0.0007
-cfl_number = 0.3
-use_variable_dt = false
+tmax = 4.0
+dt_init = 0.01
+dt_max = 0.02
+cfl_number = 0.5
+use_variable_dt = true
 
 [output]
-t_out_scal = 0.3141592653589793
-t_out_spec = 0.0
+t_out_scal = 0.4
+t_out_spec = 0.5
 t_out_full = 0.0
 
 [backend]
-backend = "numpy"
+backend = "scipy_cpu"
+fft_workers = 8
 real_dtype = "float64"
 complex_dtype = "complex128"
 
@@ -33,6 +35,7 @@ complex_dtype = "complex128"
 runtime_check_every = 10
 progress_output_every = 100
 fail_on_nonfinite = true
+project_kpar0 = false
 dealias = true
 dealias_mode = "two_thirds"
 
@@ -55,16 +58,16 @@ dbpar = 0.0
 s = 0.0
 
 [dissipation]
-mode = "manual"
+mode = "auto"
 n_perp = 3
-n_par = 3
+n_par = 1
 nu_par = 0.0
 kd_fraction = 0.6
 shell_half_width = 0.5
 update_every = 10
 smooth_factor = 0.2
 nu_min = 1e-12
-nu_max = 100.0
+nu_max = 0.01
 max_update_factor = 2.0
 
 [dissipation.psi]
@@ -98,4 +101,12 @@ n_perp = 3
 n_par = 3
 
 [initial_condition]
-type = "aw_packet"
+type = "random_spectrum"
+
+[initial_condition.parameters]
+n_min = 1.0
+n_max = 3.0
+alpha = 0.0
+init_energy = 0.75
+seed = 1
+exclude_kpar0 = true

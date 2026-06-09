@@ -146,6 +146,7 @@ class Config:
     runtime_check_every: int = 10
     progress_output_every: int | None = 100
     fail_on_nonfinite: bool = True
+    project_kpar0: bool = False
     t_out_scal: float = 0.1
     t_out_spec: float = 0.0
     t_out_full: float = 0.0
@@ -239,6 +240,8 @@ class Config:
             raise ValueError(f"use_variable_dt must be bool; got {self.use_variable_dt!r}.")
         if not isinstance(self.fail_on_nonfinite, bool):
             raise ValueError(f"fail_on_nonfinite must be bool; got {self.fail_on_nonfinite!r}.")
+        if not isinstance(self.project_kpar0, bool):
+            raise ValueError(f"project_kpar0 must be bool; got {self.project_kpar0!r}.")
         if not isinstance(self.use_forcing, bool):
             raise ValueError(f"use_forcing must be bool; got {self.use_forcing!r}.")
         if not isinstance(self.runtime_check_every, (int, np.integer)) or self.runtime_check_every <= 0:

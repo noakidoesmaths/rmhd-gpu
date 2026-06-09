@@ -1,0 +1,20 @@
+2026-06-04T13:29:10+12:00 run start {'title': 'Qualitative forced turbulence', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_auto.input', 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output', 'backend': 'scipy_cpu', 'equation_set': 's09', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.5, 'spectra': 1.0, 'full_field': 0.0}, 'hostname': 'Naoki', 'python_executable': 'C:\\Users\\naoki\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'git_commit': 'cde2789c3d6596cb8e14f232da25acf4598750f1', 'command': "'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\run.py' '.\\examples\\forced_turb_auto.input'"}
+2026-06-04T13:29:10+12:00 run setup {'resolved_output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_auto.input', 'backend': 'scipy_cpu', 'equation_set': 's09', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.5, 'spectra': 1.0, 'full_field': 0.0}, 'dissipation_mode': 'auto', 'initial_condition': {'type': 'zero'}}
+2026-06-04T13:29:13+12:00 scalar diagnostics {'step': 0, 'time': 0.0, 'dt': 0.0, 'total_energy': 0.0}
+2026-06-04T13:29:13+12:00 spectra diagnostics {'time': 0.0, 'step': 0, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:29:13+12:00 scalar diagnostics {'step': 34, 'time': 0.5100000000000003, 'dt': 0.015, 'total_energy': 0.854804630954066}
+2026-06-04T13:29:14+12:00 scalar diagnostics {'step': 67, 'time': 1.0050000000000008, 'dt': 0.015, 'total_energy': 1.7535685088973287}
+2026-06-04T13:29:14+12:00 spectra diagnostics {'time': 1.0050000000000008, 'step': 67, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:29:14+12:00 progress {'step': 100, 'time': 1.4999999999999976, 'dt': 0.015}
+2026-06-04T13:29:14+12:00 scalar diagnostics {'step': 101, 'time': 1.5149999999999975, 'dt': 0.015, 'total_energy': 3.342858282280086}
+2026-06-04T13:29:14+12:00 scalar diagnostics {'step': 134, 'time': 2.0099999999999945, 'dt': 0.015, 'total_energy': 4.0775471889476185}
+2026-06-04T13:29:14+12:00 spectra diagnostics {'time': 2.0099999999999945, 'step': 134, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:29:14+12:00 scalar diagnostics {'step': 167, 'time': 2.5049999999999986, 'dt': 0.015, 'total_energy': 4.976215532595839}
+2026-06-04T13:29:14+12:00 progress {'step': 200, 'time': 3.0000000000000027, 'dt': 0.015}
+2026-06-04T13:29:14+12:00 scalar diagnostics {'step': 200, 'time': 3.0000000000000027, 'dt': 0.015, 'total_energy': 6.1015250184474095}
+2026-06-04T13:29:14+12:00 spectra diagnostics {'time': 3.0000000000000027, 'step': 200, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:29:15+12:00 scalar diagnostics {'step': 234, 'time': 3.510000000000007, 'dt': 0.015, 'total_energy': 7.272097400686116}
+2026-06-04T13:29:15+12:00 progress {'step': 267, 'time': 4.0, 'dt': 0.009999999999989129}
+2026-06-04T13:29:15+12:00 scalar diagnostics {'step': 267, 'time': 4.0, 'dt': 0.009999999999989129, 'total_energy': 6.4981803402948835}
+2026-06-04T13:29:15+12:00 spectra diagnostics {'time': 4.0, 'step': 267, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:29:15+12:00 run complete {'backend': 'scipy_cpu', 'equation_set': 's09', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'steps': 267, 't_final': 4.0, 'dt_last': 0.009999999999989129, 'total_energy_initial': 0.0, 'total_energy_final': 6.4981803402948835, 'psi_hat_max_abs': 2013.4255492743741, 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output', 'scalar_diagnostics_csv': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output\\scalar_diagnostics.csv', 'spectra_csv': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output\\spectra.csv'}

@@ -118,7 +118,7 @@ def derived_parameters(params: Any) -> inhomo_rmhd_parameters:
     cs2 = chi * vA**2
     vS2 = alpha * vA**2
     
-    N_sq = g * (vS2/cs2 *(K_b0 + chi * K_p0/gamma) - K_rho0)
+    N_sq = - g * (vS2/cs2 *(K_b0 + chi * K_p0/gamma) - K_rho0)
 
     dbpar_energy_weight = vA**2 / alpha
     entropy_energy_weight = cs2/(gamma**2 * (gamma - 1))

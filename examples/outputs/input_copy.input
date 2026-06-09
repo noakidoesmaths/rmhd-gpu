@@ -1,16 +1,17 @@
 # `.input` files use TOML syntax.
 #
-# This reproduces the old `sanity_aw_packet` test as a normal case input.
-# The built-in `aw_packet` initializer creates the same large-amplitude
-# packet used there: a smooth `phi = psi` superposition of the first three
-# modes in each direction, normalized to unit RMS.
+# This is the auto-dissipation companion to `examples/decay_spectra.input`.
+# It uses the same low-mode random-spectrum initial condition, but lets the solver
+# choose one common perpendicular hyperdissipation coefficient for all evolved
+# fields from the fluctuation amplitude near the chosen dissipation scale.
 #
 # Use:
-#   python -m rmhdgpu.run examples/aw_packet.input
+#   python -m rmhdgpu.run examples/decay_spectra_auto.input
 #   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
-#   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
+#   python vis/plot_budget.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_spectra.py examples/outputs/spectra.csv
 
-title = "Qualitative Alfvén-wave packet translation"
+title = "Qualitative decaying turbulence spectra (auto dissipation)"
 output_dir = "outputs"
 
 [equations]
@@ -22,30 +23,50 @@ Ny = 16
 Nz = 16
 
 [time]
-# The old sanity script advanced to 0.5 Alfven times. With the default
-# periodic box and vA = 1, that is t = pi.
-tmax = 3.141592653589793
-dt_init = 7.0e-4
-use_variable_dt = false
+tmax = 4.0
+dt_max = 2.0e-2
+cfl_number = 0.5
 
 [output]
-t_out_scal = 0.3141592653589793
-t_out_spec = 0.0
+t_out_scal = 0.4
+t_out_spec = 0.5
 t_out_full = 0.0
 
 [backend]
-backend = "numpy"
-
-[physics]
-vA = 1.0
-cs2_over_vA2 = 1.0
+backend = "scipy_cpu"
+fft_workers = 8
 
 [initial_condition]
-type = "aw_packet"
+type = "random_spectrum"
 
-[runtime]
-progress_output_every = 100
+[initial_condition.parameters]
+n_min = 1.0
+n_max = 3.0
+alpha = 0.0
+init_energy = 0.75
+seed = 1
 
-# This run is ideal, so the default zero dissipation is retained.
-# Set `t_out_full > 0` to write `fullfields/fullfield_0001.h5`, etc.,
-# when `h5py` is installed.
+# Auto mode picks a single common perpendicular coefficient for all fields.
+# The controller measures the total shell energy near
+#
+#   k_d = kd_fraction * k_perp,max,retained
+#
+# then estimates a dissipation-scale amplitude u_d and chooses nu_perp so that
+#
+#   k_d * u_d ~ nu_perp * k_d^(2 n_perp).
+#
+# The coefficient is only updated every `update_every` steps and smoothed in
+# log space, so it should be much less noisy than a raw shell-by-shell estimate.
+
+[dissipation]
+mode = "auto"
+n_perp = 3
+n_par = 1
+nu_par = 0.0
+kd_fraction = 0.6
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1e-12
+nu_max = 1e-2
+max_update_factor = 2.0

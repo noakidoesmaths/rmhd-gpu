@@ -1,0 +1,93 @@
+# `.input` files use TOML syntax.
+#
+# This reproduces the old `` test as a normal case input.
+# The built-in `aw_packet` initializer creates the same large-amplitude
+# packet used there: a smooth `phi = psi` superposition of the first three
+# modes in each direction, normalized to unit RMS.
+#
+# Use:
+#   python -m rmhdgpu.run examples/aw_packet.input
+#   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
+
+title = "Inhomogeneous rmhd simulation test"
+output_dir = "outputs_nokia_rmhd_rho"
+
+[equations]
+type = "inhomogeneous_rmhd_rho"
+
+[grid]
+Nx = 16
+Ny = 16
+Nz = 16
+
+[time]
+# The old sanity script advanced to 0.5 Alfven times. With the default
+# periodic box and vA = 1, that is t = pi.
+
+tmax = 3.0
+dt_init = 2.0e-3
+use_variable_dt = true
+cfl_number = 0.3
+
+[output]
+t_out_scal = 0.3141592653589793
+t_out_spec = 0.0
+t_out_full = 0.0
+
+[backend]
+backend = "numpy"
+
+[physics]
+vA = 1.0
+cs2_over_vA2 = 1.0
+g = 6.8
+K_p0 = -9.3
+K_rho0 = -9.0
+
+[initial_condition]
+type = "random_spectrum"
+
+[initial_condition.parameters]
+n_min = 1.0
+n_max = 3.0
+alpha = 0.0
+init_energy = 0.75
+seed = 1
+
+[runtime]
+progress_output_every = 100
+
+# This run is ideal, so the default zero dissipation is retained.
+# Set `t_out_full > 0` to write `fullfields/fullfield_0001.h5`, etc.,
+# when `h5py` is installed.
+
+[dissipation.psi]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.omega]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.du_par]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.db_par]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1
+
+[dissipation.drho]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 2
+n_par = 1

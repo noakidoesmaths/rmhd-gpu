@@ -3,24 +3,24 @@ output_dir = "outputs_nokia_rmhd_s_1"
 
 [equations]
 type = "inhomogeneous_rmhd_s"
-mode = "nonlinear"
+mode = "linear"
 
 [grid]
-Nx = 16
-Ny = 16
-Nz = 16
+Nx = 32
+Ny = 32
+Nz = 32
 Lx = 6.283185307179586
 Ly = 6.283185307179586
 Lz = 6.283185307179586
 
 [time]
-tmax = 3.141592653589793
-dt_init = 0.001
-cfl_number = 0.3
-use_variable_dt = false
+tmax = 100.0
+dt_init = 0.002
+cfl_number = 0.5
+use_variable_dt = true
 
 [output]
-t_out_scal = 0.3141592653589793
+t_out_scal = 0.25
 t_out_spec = 0.0
 t_out_full = 0.0
 
@@ -33,12 +33,13 @@ complex_dtype = "complex128"
 runtime_check_every = 10
 progress_output_every = 100
 fail_on_nonfinite = true
+project_kpar0 = true
 dealias = true
 dealias_mode = "two_thirds"
 
 [physics]
 vA = 1.0
-cs2_over_vA2 = 0.2
+cs2_over_vA2 = 1.0
 N2 = 1.0
 
 [forcing]
@@ -55,47 +56,55 @@ db_par = 0.0
 s = 0.0
 
 [dissipation]
-mode = "manual"
+mode = "auto"
 n_perp = 3
-n_par = 3
+n_par = 1
 nu_par = 0.0
 kd_fraction = 0.6
 shell_half_width = 0.5
 update_every = 10
 smooth_factor = 0.2
 nu_min = 1e-12
-nu_max = 100.0
+nu_max = 0.01
 max_update_factor = 2.0
 
 [dissipation.psi]
 nu_perp = 0.0
 nu_par = 0.0
-n_perp = 2
-n_par = 1
+n_perp = 3
+n_par = 3
 
 [dissipation.omega]
 nu_perp = 0.0
 nu_par = 0.0
-n_perp = 2
-n_par = 1
+n_perp = 3
+n_par = 3
 
 [dissipation.du_par]
 nu_perp = 0.0
 nu_par = 0.0
-n_perp = 2
-n_par = 1
+n_perp = 3
+n_par = 3
 
 [dissipation.db_par]
 nu_perp = 0.0
 nu_par = 0.0
-n_perp = 2
-n_par = 1
+n_perp = 3
+n_par = 3
 
 [dissipation.s]
 nu_perp = 0.0
 nu_par = 0.0
-n_perp = 2
-n_par = 1
+n_perp = 3
+n_par = 3
 
 [initial_condition]
-type = "aw_packet"
+type = "random_spectrum"
+
+[initial_condition.parameters]
+n_min = 1.0
+n_max = 3.0
+alpha = 0.0
+init_energy = 0.75
+seed = 1
+exclude_kpar0 = true

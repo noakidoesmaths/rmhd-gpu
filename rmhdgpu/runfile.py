@@ -54,7 +54,7 @@ _SECTION_KEYS = {
     },
     "output": {"t_out_scal", "t_out_spec", "t_out_full"},
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
-    "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "dealias", "dealias_mode"},
+    "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "project_kpar0", "dealias", "dealias_mode"},
     "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
     "forcing": {"use_forcing", "n_min_force", "n_max_force", "alpha_force", "forcing_seed", "force_amplitudes"},
 }
@@ -77,7 +77,7 @@ _SECTION_TO_CONFIG_KEYS = {
     "time": {"tmax", "dt_init", "dt_min", "dt_max", "cfl_number", "use_variable_dt", "t_out_scal", "t_out_spec", "t_out_full"},
     "output": {"t_out_scal", "t_out_spec", "t_out_full"},
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
-    "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "dealias", "dealias_mode"},
+    "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "project_kpar0", "dealias", "dealias_mode"},
     "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
     "forcing": {"use_forcing", "n_min_force", "n_max_force", "alpha_force", "forcing_seed"},
 }
@@ -285,6 +285,7 @@ def cli_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "runtime_check_every": "runtime_check_every",
         "progress_output_every": "progress_output_every",
         "fail_on_nonfinite": "fail_on_nonfinite",
+        "project_kpar0": "project_kpar0",
         "dealias": "dealias",
         "dealias_mode": "dealias_mode",
     }
@@ -422,6 +423,7 @@ def _resolved_document(
             "runtime_check_every": config.runtime_check_every,
             "progress_output_every": config.progress_output_every,
             "fail_on_nonfinite": config.fail_on_nonfinite,
+            "project_kpar0": config.project_kpar0,
             "t_out_scal": config.t_out_scal,
             "t_out_spec": config.t_out_spec,
             "t_out_full": config.t_out_full,
@@ -478,6 +480,7 @@ def _resolved_document(
             "runtime_check_every": config_values["runtime_check_every"],
             "progress_output_every": config_values["progress_output_every"],
             "fail_on_nonfinite": config_values["fail_on_nonfinite"],
+            "project_kpar0": config_values["project_kpar0"],
             "dealias": config_values["dealias"],
             "dealias_mode": config_values["dealias_mode"],
         },

@@ -18,9 +18,9 @@ output_dir = "outputs"
 type = "s09"
 
 [grid]
-Nx = 128
-Ny = 128
-Nz = 128
+Nx = 16
+Ny = 16
+Nz = 16
 
 [time]
 tmax = 4.0

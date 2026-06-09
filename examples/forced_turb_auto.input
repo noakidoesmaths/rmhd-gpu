@@ -1,0 +1,85 @@
+# `.input` files use TOML syntax.
+#
+# This reproduces the old `sanity_forced_turbulence` setup as a normal case
+# input. It starts from zero initial conditions, drives the large scales with
+# white-in-time forcing, and uses the same qualitative dissipation recipe as
+# that script.
+#
+# Use:
+#   python -m rmhdgpu.run examples/forced_turbulence.input
+#   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_budget.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_spectra.py examples/outputs/spectra.csv
+
+title = "Qualitative forced turbulence"
+output_dir = "forced_turb_output_1"
+
+[equations]
+type = "s09"
+
+[grid]
+Nx = 16
+Ny = 16
+Nz = 16
+
+[time]
+tmax = 15.0
+dt_max = 1.5e-2
+cfl_number = 0.35
+
+[output]
+t_out_scal = 0.5
+t_out_spec = 1.0
+t_out_full = 0.0
+
+[backend]
+backend = "scipy_cpu"
+fft_workers = 8
+
+[forcing]
+use_forcing = true
+n_min_force = 1.0
+n_max_force = 3.0
+alpha_force = 0.5
+forcing_seed = 1234
+
+[forcing.force_amplitudes]
+psi = 1.0
+omega = 1.0
+upar = 0.03
+dbpar = 0.03
+s = 0.02
+
+[initial_condition]
+type = "zero"
+
+# The original sanity script estimated the perpendicular hyperdiffusion from
+# the same heuristic balance used in the decaying case, but with a simple
+# `u_rms_guess = 1` because the run starts from zero and is sustained by
+# forcing. It again used
+#
+#   k_d = 0.5 * k_perp,max,dealiased
+#   nu_par = 0.1 * nu_perp
+#
+# so the damping acts near the top of the retained range.
+#
+# For this 96^3 setup that gave:
+#   nu_perp = 7.0602100382628398e-08
+#   nu_par  = 7.0602100382628398e-09
+#
+# Full-field HDF5 output is disabled by default here to keep the example
+# relatively light. Set `t_out_full` to a positive value when you want saved
+# slices for `vis/plot_fullfield.py`.
+
+[dissipation]
+mode = "auto"
+n_perp = 3
+n_par = 1
+nu_par = 0.0
+kd_fraction = 0.6
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1e-12
+nu_max = 1e-2
+max_update_factor = 2.0

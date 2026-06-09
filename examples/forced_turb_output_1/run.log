@@ -1,0 +1,60 @@
+2026-06-04T13:35:07+12:00 run start {'title': 'Qualitative forced turbulence', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_auto.input', 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output_1', 'backend': 'scipy_cpu', 'equation_set': 's09', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.5, 'spectra': 1.0, 'full_field': 0.0}, 'hostname': 'Naoki', 'python_executable': 'C:\\Users\\naoki\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'git_commit': 'cde2789c3d6596cb8e14f232da25acf4598750f1', 'command': "'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\run.py' '.\\examples\\forced_turb_auto.input'"}
+2026-06-04T13:35:07+12:00 run setup {'resolved_output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output_1', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_auto.input', 'backend': 'scipy_cpu', 'equation_set': 's09', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.5, 'spectra': 1.0, 'full_field': 0.0}, 'dissipation_mode': 'auto', 'initial_condition': {'type': 'zero'}}
+2026-06-04T13:35:07+12:00 scalar diagnostics {'step': 0, 'time': 0.0, 'dt': 0.0, 'total_energy': 0.0}
+2026-06-04T13:35:07+12:00 spectra diagnostics {'time': 0.0, 'step': 0, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:07+12:00 scalar diagnostics {'step': 34, 'time': 0.5100000000000003, 'dt': 0.015, 'total_energy': 0.854804630954066}
+2026-06-04T13:35:07+12:00 scalar diagnostics {'step': 67, 'time': 1.0050000000000008, 'dt': 0.015, 'total_energy': 1.7535685088973287}
+2026-06-04T13:35:07+12:00 spectra diagnostics {'time': 1.0050000000000008, 'step': 67, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:08+12:00 progress {'step': 100, 'time': 1.4999999999999976, 'dt': 0.015}
+2026-06-04T13:35:08+12:00 scalar diagnostics {'step': 101, 'time': 1.5149999999999975, 'dt': 0.015, 'total_energy': 3.342858282280086}
+2026-06-04T13:35:08+12:00 scalar diagnostics {'step': 134, 'time': 2.0099999999999945, 'dt': 0.015, 'total_energy': 4.0775471889476185}
+2026-06-04T13:35:08+12:00 spectra diagnostics {'time': 2.0099999999999945, 'step': 134, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:08+12:00 scalar diagnostics {'step': 167, 'time': 2.5049999999999986, 'dt': 0.015, 'total_energy': 4.976215532595839}
+2026-06-04T13:35:09+12:00 progress {'step': 200, 'time': 3.0000000000000027, 'dt': 0.015}
+2026-06-04T13:35:09+12:00 scalar diagnostics {'step': 200, 'time': 3.0000000000000027, 'dt': 0.015, 'total_energy': 6.1015250184474095}
+2026-06-04T13:35:09+12:00 spectra diagnostics {'time': 3.0000000000000027, 'step': 200, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:09+12:00 scalar diagnostics {'step': 234, 'time': 3.510000000000007, 'dt': 0.015, 'total_energy': 7.272097400686116}
+2026-06-04T13:35:09+12:00 scalar diagnostics {'step': 267, 'time': 4.0050000000000106, 'dt': 0.015, 'total_energy': 6.484104296306997}
+2026-06-04T13:35:09+12:00 spectra diagnostics {'time': 4.0050000000000106, 'step': 267, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:09+12:00 progress {'step': 300, 'time': 4.5, 'dt': 0.015}
+2026-06-04T13:35:09+12:00 scalar diagnostics {'step': 300, 'time': 4.5, 'dt': 0.015, 'total_energy': 4.880764618460358}
+2026-06-04T13:35:10+12:00 scalar diagnostics {'step': 334, 'time': 5.009999999999989, 'dt': 0.015, 'total_energy': 4.526455389718279}
+2026-06-04T13:35:10+12:00 spectra diagnostics {'time': 5.009999999999989, 'step': 334, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:10+12:00 scalar diagnostics {'step': 367, 'time': 5.504999999999979, 'dt': 0.015, 'total_energy': 3.9378032196706227}
+2026-06-04T13:35:10+12:00 progress {'step': 400, 'time': 5.999999999999968, 'dt': 0.015}
+2026-06-04T13:35:10+12:00 scalar diagnostics {'step': 401, 'time': 6.014999999999968, 'dt': 0.015, 'total_energy': 3.8764789480642454}
+2026-06-04T13:35:10+12:00 spectra diagnostics {'time': 6.014999999999968, 'step': 401, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:10+12:00 scalar diagnostics {'step': 434, 'time': 6.509999999999957, 'dt': 0.015, 'total_energy': 4.321060880001554}
+2026-06-04T13:35:11+12:00 scalar diagnostics {'step': 467, 'time': 7.004999999999947, 'dt': 0.015, 'total_energy': 4.685029782956828}
+2026-06-04T13:35:11+12:00 spectra diagnostics {'time': 7.004999999999947, 'step': 467, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:11+12:00 progress {'step': 500, 'time': 7.499999999999936, 'dt': 0.015}
+2026-06-04T13:35:11+12:00 scalar diagnostics {'step': 501, 'time': 7.514999999999936, 'dt': 0.015, 'total_energy': 4.985071829616822}
+2026-06-04T13:35:11+12:00 scalar diagnostics {'step': 534, 'time': 8.009999999999925, 'dt': 0.015, 'total_energy': 4.527208122616697}
+2026-06-04T13:35:11+12:00 spectra diagnostics {'time': 8.009999999999925, 'step': 534, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:11+12:00 scalar diagnostics {'step': 567, 'time': 8.504999999999944, 'dt': 0.015, 'total_energy': 4.539139243330993}
+2026-06-04T13:35:12+12:00 progress {'step': 600, 'time': 8.999999999999963, 'dt': 0.015}
+2026-06-04T13:35:12+12:00 scalar diagnostics {'step': 601, 'time': 9.014999999999963, 'dt': 0.015, 'total_energy': 4.293853456404957}
+2026-06-04T13:35:12+12:00 spectra diagnostics {'time': 9.014999999999963, 'step': 601, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:12+12:00 scalar diagnostics {'step': 634, 'time': 9.509999999999982, 'dt': 0.015, 'total_energy': 4.1142164827469445}
+2026-06-04T13:35:12+12:00 scalar diagnostics {'step': 667, 'time': 10.005, 'dt': 0.015, 'total_energy': 4.6186396910348275}
+2026-06-04T13:35:12+12:00 spectra diagnostics {'time': 10.005, 'step': 667, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:12+12:00 progress {'step': 700, 'time': 10.50000000000002, 'dt': 0.015}
+2026-06-04T13:35:12+12:00 scalar diagnostics {'step': 700, 'time': 10.50000000000002, 'dt': 0.015, 'total_energy': 4.665085127293311}
+2026-06-04T13:35:13+12:00 scalar diagnostics {'step': 734, 'time': 11.010000000000039, 'dt': 0.015, 'total_energy': 4.745429611308213}
+2026-06-04T13:35:13+12:00 spectra diagnostics {'time': 11.010000000000039, 'step': 734, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:13+12:00 scalar diagnostics {'step': 767, 'time': 11.505000000000058, 'dt': 0.015, 'total_energy': 4.528405079522037}
+2026-06-04T13:35:13+12:00 progress {'step': 800, 'time': 12.000000000000076, 'dt': 0.015}
+2026-06-04T13:35:13+12:00 scalar diagnostics {'step': 800, 'time': 12.000000000000076, 'dt': 0.015, 'total_energy': 4.476319948083221}
+2026-06-04T13:35:13+12:00 spectra diagnostics {'time': 12.000000000000076, 'step': 800, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:13+12:00 scalar diagnostics {'step': 834, 'time': 12.510000000000096, 'dt': 0.015, 'total_energy': 4.660172562112726}
+2026-06-04T13:35:14+12:00 scalar diagnostics {'step': 867, 'time': 13.005000000000114, 'dt': 0.015, 'total_energy': 4.830682916467266}
+2026-06-04T13:35:14+12:00 spectra diagnostics {'time': 13.005000000000114, 'step': 867, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:14+12:00 progress {'step': 900, 'time': 13.500000000000133, 'dt': 0.015}
+2026-06-04T13:35:14+12:00 scalar diagnostics {'step': 900, 'time': 13.500000000000133, 'dt': 0.015, 'total_energy': 4.12666681605349}
+2026-06-04T13:35:14+12:00 scalar diagnostics {'step': 934, 'time': 14.010000000000153, 'dt': 0.015, 'total_energy': 4.082025842769962}
+2026-06-04T13:35:14+12:00 spectra diagnostics {'time': 14.010000000000153, 'step': 934, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:14+12:00 scalar diagnostics {'step': 967, 'time': 14.505000000000171, 'dt': 0.015, 'total_energy': 3.897535145465855}
+2026-06-04T13:35:15+12:00 progress {'step': 1000, 'time': 15.0, 'dt': 0.014999999999810498}
+2026-06-04T13:35:15+12:00 scalar diagnostics {'step': 1000, 'time': 15.0, 'dt': 0.014999999999810498, 'total_energy': 3.5790930496106195}
+2026-06-04T13:35:15+12:00 spectra diagnostics {'time': 15.0, 'step': 1000, 'quantities': ['u_perp', 'b_perp', 'upar', 'dbpar', 's'], 'shell_count': 12}
+2026-06-04T13:35:15+12:00 run complete {'backend': 'scipy_cpu', 'equation_set': 's09', 'equation_mode': 'nonlinear', 'grid': [16, 16, 16], 'steps': 1000, 't_final': 15.0, 'dt_last': 0.014999999999810498, 'total_energy_initial': 0.0, 'total_energy_final': 3.5790930496106195, 'psi_hat_max_abs': 2490.7995162765214, 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output_1', 'scalar_diagnostics_csv': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output_1\\scalar_diagnostics.csv', 'spectra_csv': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\examples\\forced_turb_output_1\\spectra.csv'}

@@ -1,0 +1,104 @@
+title = "Qualitative forced turbulence"
+output_dir = "forced_turb_output"
+
+[equations]
+type = "s09"
+mode = "nonlinear"
+
+[grid]
+Nx = 16
+Ny = 16
+Nz = 16
+Lx = 6.283185307179586
+Ly = 6.283185307179586
+Lz = 6.283185307179586
+
+[time]
+tmax = 4.0
+dt_init = 0.01
+dt_max = 0.015
+cfl_number = 0.35
+use_variable_dt = true
+
+[output]
+t_out_scal = 0.5
+t_out_spec = 1.0
+t_out_full = 0.0
+
+[backend]
+backend = "scipy_cpu"
+fft_workers = 8
+real_dtype = "float64"
+complex_dtype = "complex128"
+
+[runtime]
+runtime_check_every = 10
+progress_output_every = 100
+fail_on_nonfinite = true
+dealias = true
+dealias_mode = "two_thirds"
+
+[physics]
+vA = 1.0
+cs2_over_vA2 = 1.0
+N2 = 1.0
+
+[forcing]
+use_forcing = true
+n_min_force = 1.0
+n_max_force = 3.0
+alpha_force = 0.5
+forcing_seed = 1234
+
+[forcing.force_amplitudes]
+psi = 1.0
+omega = 1.0
+upar = 0.03
+dbpar = 0.03
+s = 0.02
+
+[dissipation]
+mode = "auto"
+n_perp = 3
+n_par = 1
+nu_par = 0.0
+kd_fraction = 0.6
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1e-12
+nu_max = 0.01
+max_update_factor = 2.0
+
+[dissipation.psi]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 3
+
+[dissipation.omega]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 3
+
+[dissipation.upar]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 3
+
+[dissipation.dbpar]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 3
+
+[dissipation.s]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 3
+
+[initial_condition]
+type = "zero"

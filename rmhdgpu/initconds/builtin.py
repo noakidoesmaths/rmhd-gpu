@@ -44,6 +44,7 @@ RANDOM_SPECTRUM_DEFAULTS = {
     "alpha": 0.0,
     "init_energy": 0.75,
     "seed": 0,
+    "exclude_kpar0": True,   # drop the marginal k_par=0, k_perp!=0 plane
 }
 
 
@@ -370,6 +371,7 @@ def _normalize_random_spectrum_parameters(parameters: dict[str, Any]) -> dict[st
             raise ValueError(f"{key} must be finite; got {normalized[key]!r}.")
 
     normalized["seed"] = int(normalized["seed"])
+    normalized["exclude_kpar0"] = bool(normalized["exclude_kpar0"])
 
     if normalized["n_min"] < 0.0:
         raise ValueError(f"n_min must be nonnegative; got {normalized['n_min']!r}.")
@@ -610,6 +612,15 @@ def random_spectrum(
 
     if dealias_mask is not None:
         state.apply_mask(dealias_mask)
+
+    # Drop the k_par = 0 plane: it is a marginal (zero-frequency, defective)
+    # subspace where psi is frozen and du_par is driven secularly by
+    # -vA*K_b0*dy(psi), so seeding it makes total_energy grow ~ t^2. Applied
+    # before energy rescaling so init_energy is normalized over surviving modes.
+    if normalized["exclude_kpar0"]:
+        kpar_nonzero = grid.kz != 0
+        for field_name in state.field_names:
+            state[field_name][...] *= kpar_nonzero
 
     return _rescale_state_to_total_energy(
         state,

@@ -15,22 +15,26 @@ output_dir = "outputs_nokia_rmhd_s_1"
 
 [equations]
 type = "inhomogeneous_rmhd_s"
+mode = "linear"
 
 [grid]
-Nx = 16
-Ny = 16
-Nz = 16
+Nx = 32
+Ny = 32
+Nz = 32
 
 [time]
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
 
-tmax = 3.141592653589793
-dt_init = 1.0e-3
-use_variable_dt = false
+# Run long enough to see the instability grow, turn over, and settle into a
+# dissipation-limited saturated state (not just the initial growth phase).
+tmax = 100.0
+dt_init = 2.0e-3
+use_variable_dt = true
+cfl_number = 0.5
 
 [output]
-t_out_scal = 0.3141592653589793
+t_out_scal = 0.25
 t_out_spec = 0.0
 t_out_full = 0.0
 
@@ -39,47 +43,39 @@ backend = "numpy"
 
 [physics]
 vA = 1.0
-cs2_over_vA2 = 0.2
-g = 5.35
-K_p0 = -19.9
-K_rho0 = -26
+cs2_over_vA2 = 1.0
+g = 3.0
+K_p0 = 4.1
+K_rho0 = 9.5
 
 [initial_condition]
-type = "aw_packet"
+type = "random_spectrum"
+
+[initial_condition.parameters]
+n_min = 1.0
+n_max = 3.0
+alpha = 0.0
+init_energy = 0.75
+seed = 1
+exclude_kpar0 = true
 
 [runtime]
 progress_output_every = 100
+project_kpar0 = true
 
 # This run is ideal, so the default zero dissipation is retained.
 # Set `t_out_full > 0` to write `fullfields/fullfield_0001.h5`, etc.,
 # when `h5py` is installed.
 
-[dissipation.psi]
-nu_perp = 0.0
-nu_par = 0.0
-n_perp = 2
+[dissipation]
+mode = "auto"
+n_perp = 3
 n_par = 1
-
-[dissipation.omega]
-nu_perp = 0.0
 nu_par = 0.0
-n_perp = 2
-n_par = 1
-
-[dissipation.du_par]
-nu_perp = 0.0
-nu_par = 0.0
-n_perp = 2
-n_par = 1
-
-[dissipation.db_par]
-nu_perp = 0.0
-nu_par = 0.0
-n_perp = 2
-n_par = 1
-
-[dissipation.s]
-nu_perp = 0.0
-nu_par = 0.0
-n_perp = 2
-n_par = 1
+kd_fraction = 0.6
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1e-12
+nu_max = 1e-2
+max_update_factor = 2.0

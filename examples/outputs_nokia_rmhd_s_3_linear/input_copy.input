@@ -1,0 +1,81 @@
+# `.input` files use TOML syntax.
+#
+# This reproduces the old `` test as a normal case input.
+# The built-in `aw_packet` initializer creates the same large-amplitude
+# packet used there: a smooth `phi = psi` superposition of the first three
+# modes in each direction, normalized to unit RMS.
+#
+# Use:
+#   python -m rmhdgpu.run examples/aw_packet.input
+#   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
+#   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
+
+title = "Inhomogeneous rmhd simulation test"
+output_dir = "outputs_nokia_rmhd_s_3_linear"
+
+[equations]
+type = "inhomogeneous_rmhd_s"
+mode = "linear"
+
+[grid]
+Nx = 32
+Ny = 32
+Nz = 32
+
+[time]
+# The old sanity script advanced to 0.5 Alfven times. With the default
+# periodic box and vA = 1, that is t = pi.
+
+# Run long enough to see the instability grow, turn over, and settle into a
+# dissipation-limited saturated state (not just the initial growth phase).
+tmax = 50.0
+dt_init = 2.0e-3
+use_variable_dt = true
+cfl_number = 0.5
+
+[output]
+t_out_scal = 0.25
+t_out_spec = 0.0
+t_out_full = 0.0
+
+[backend]
+backend = "numpy"
+
+[physics]
+vA = 1.0
+cs2_over_vA2 = 1.0
+g = 3.0
+K_p0 = 4.1
+K_rho0 = 3.5
+
+[initial_condition]
+type = "random_spectrum"
+
+[initial_condition.parameters]
+n_min = 1.0
+n_max = 3.0
+alpha = 0.0
+init_energy = 0.75
+seed = 1
+exclude_kpar0 = true
+
+[runtime]
+progress_output_every = 100
+project_kpar0 = true
+
+# This run is ideal, so the default zero dissipation is retained.
+# Set `t_out_full > 0` to write `fullfields/fullfield_0001.h5`, etc.,
+# when `h5py` is installed.
+
+[dissipation]
+mode = "auto"
+n_perp = 3
+n_par = 1
+nu_par = 0.0
+kd_fraction = 0.6
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1e-12
+nu_max = 1e-2
+max_update_factor = 2.0
