@@ -23,7 +23,7 @@ Ny = 16
 Nz = 16
 
 [time]
-tmax = 4.0
+tmax = 10.0
 dt_max = 2.0e-2
 cfl_number = 0.5
 

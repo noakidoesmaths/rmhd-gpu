@@ -34,6 +34,7 @@ complex_dtype = "complex128"
 runtime_check_every = 10
 progress_output_every = 100
 fail_on_nonfinite = true
+project_kpar0 = false
 dealias = true
 dealias_mode = "two_thirds"
 

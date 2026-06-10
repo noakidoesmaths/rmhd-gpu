@@ -14,7 +14,7 @@ Ly = 6.283185307179586
 Lz = 6.283185307179586
 
 [time]
-tmax = 4.0
+tmax = 10.0
 dt_init = 0.01
 dt_max = 0.02
 cfl_number = 0.5

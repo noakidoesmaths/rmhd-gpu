@@ -28,7 +28,7 @@ Ny = 32
 Nz = 32
 
 [time]
-tmax = 0.5
+tmax = 2.5
 dt_init = 1.0e-3
 dt_max = 2.0e-3
 use_variable_dt = true

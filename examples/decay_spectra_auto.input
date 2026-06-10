@@ -12,7 +12,7 @@
 #   python vis/plot_spectra.py examples/outputs/spectra.csv
 
 title = "Qualitative decaying turbulence spectra (auto dissipation)"
-output_dir = "outputs"
+output_dir = "outputs_decay"
 
 [equations]
 type = "s09"
@@ -23,7 +23,7 @@ Ny = 16
 Nz = 16
 
 [time]
-tmax = 4.0
+tmax = 15.0
 dt_max = 2.0e-2
 cfl_number = 0.5
 

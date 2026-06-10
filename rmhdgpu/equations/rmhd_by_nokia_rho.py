@@ -326,11 +326,12 @@ def linear_matrix(kx: float, ky: float, kz: float, params: Any) -> np.ndarray:
     if kperp2 > 0.0:
         matrix[0, 1] = -p.vA * ikz / kperp2
         matrix[1, 0] = -p.vA * ikz * kperp2
+        matrix[1, 4] = -iky * p.g
         matrix[2, 1] = iky * p.alpha * (p.K_b0 - p.K_p0 / p.gamma)/kperp2
-        matrix[4, 1] = iky * (p.K_b0/(1 + p.chi) - p.K_rho0 + p.alpha * p.K_p0/p.gamma)/kperp2
+        matrix[4, 1] = -iky * (p.K_b0/(1 + p.chi) - p.K_rho0 + p.alpha * p.K_p0/p.gamma)/kperp2
         
     matrix[2, 3] = p.alpha * iky
-    matrix[3, 0] = iky * p.vA * p.K_b0
+    matrix[3, 0] = -iky * p.vA * p.K_b0
     matrix[3, 2] = ikz * p.vA ** 2
     matrix[4, 3] = -p.alpha * ikz/p.chi
     return matrix

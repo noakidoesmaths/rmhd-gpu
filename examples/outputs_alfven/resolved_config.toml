@@ -14,10 +14,10 @@ Ly = 6.283185307179586
 Lz = 6.283185307179586
 
 [time]
-tmax = 3.141592653589793
+tmax = 12.56
 dt_init = 0.07
-cfl_number = 0.3
-use_variable_dt = false
+cfl_number = 0.5
+use_variable_dt = true
 
 [output]
 t_out_scal = 0.3141592653589793

@@ -11,10 +11,11 @@
 #   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
 
 title = "Inhomogeneous rmhd simulation test"
-output_dir = "outputs_nokia_rmhd_rho_2"
+output_dir = "outputs_nokia_rmhd_rho_3"
 
 [equations]
 type = "inhomogeneous_rmhd_rho"
+mode = "linear"
 
 [grid]
 Nx = 32
@@ -25,7 +26,7 @@ Nz = 32
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
 
-tmax = 100.0
+tmax = 50.0
 dt_init = 2.0e-3
 use_variable_dt = true
 cfl_number = 0.5
@@ -42,8 +43,8 @@ backend = "numpy"
 vA = 1.0
 cs2_over_vA2 = 1.0
 g = 3.0
-K_p0 = 4.1
-K_rho0 = 9.5
+K_p0 = 1.1
+K_rho0 = 6.5
 
 [initial_condition]
 type = "random_spectrum"
@@ -54,6 +55,7 @@ n_max = 3.0
 alpha = 0.0
 init_energy = 0.75
 seed = 1
+exclude_kpar0 = true
 
 [runtime]
 progress_output_every = 100

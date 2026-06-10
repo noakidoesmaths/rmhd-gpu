@@ -24,9 +24,10 @@ Nz = 16
 [time]
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
-tmax = 3.141592653589793
+tmax = 12.56
 dt_init = 7.0e-2
-use_variable_dt = false
+use_variable_dt = true
+cfl_number = 0.5
 
 [output]
 t_out_scal = 0.3141592653589793
