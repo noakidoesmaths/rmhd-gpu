@@ -4,3 +4,12 @@ sanity_plots/*
 quick_tests/*
 *.pyc
 .codex
+# Ignore simulation outputs
+examples/outputs_*/
+
+# Ignore generated files
+*.log
+*.csv
+*.png
+
+.claude
