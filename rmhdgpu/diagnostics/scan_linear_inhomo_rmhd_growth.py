@@ -40,7 +40,7 @@ except ModuleNotFoundError:  # Python < 3.11
 THIS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = THIS_DIR.parents[1]
 SCAN_DIR = THIS_DIR / "kz_scan"
-PLOT_FILE = SCAN_DIR / "gamma_vs_kpar_comparison30.png"
+PLOT_FILE = SCAN_DIR / "gamma_vs_kpar_comparison31.png"
 
 # The two equation sets to compare. Each entry is (label, input_file, runs_subdir).
 INPUT_FILES = [

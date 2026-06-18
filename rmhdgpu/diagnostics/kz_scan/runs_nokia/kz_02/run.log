@@ -1,88 +1,88 @@
-2026-05-29T17:17:00+12:00 run start {'title': 'Inhomogeneous rmhd simulation test', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\nokia_inhomo_linear.input', 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02', 'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd', 'equation_mode': 'linear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.3141592653589793, 'spectra': 0.0, 'full_field': 0.0}, 'hostname': 'Naoki', 'python_executable': 'C:\\Users\\naoki\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'git_commit': 'bae2e3dc28d11833148393904c049d5ad2ad4cea', 'command': "'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\run.py' 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\nokia_inhomo_linear.input' --output-dir 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02' --mode-kx 3 --mode-ky 3 --mode-kz 2"}
-2026-05-29T17:17:00+12:00 run setup {'resolved_output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\nokia_inhomo_linear.input', 'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd', 'equation_mode': 'linear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.3141592653589793, 'spectra': 0.0, 'full_field': 0.0}, 'dissipation_mode': 'manual', 'initial_condition': {'type': 'single_fourier_mode', 'parameters': {'k_indices': [3, 3, 2], 'amplitude': 1e-12, 'seed': 0}}}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 0, 'time': 0.0, 'dt': 0.0, 'total_energy': 2.179792865134961e-24}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 32, 'time': 0.3200000000000001, 'dt': 0.01, 'total_energy': 3.182857788380025e-16}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 63, 'time': 0.6300000000000003, 'dt': 0.01, 'total_energy': 6.95833703576607e-14}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 95, 'time': 0.9500000000000006, 'dt': 0.01, 'total_energy': 1.732994957307852e-12}
-2026-05-29T17:17:00+12:00 progress {'step': 100, 'time': 1.0000000000000007, 'dt': 0.01}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 126, 'time': 1.260000000000001, 'dt': 0.01, 'total_energy': 1.543357611292847e-11}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 158, 'time': 1.5800000000000012, 'dt': 0.01, 'total_energy': 9.001579940863618e-11}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 189, 'time': 1.8900000000000015, 'dt': 0.01, 'total_energy': 3.828265081149428e-10}
-2026-05-29T17:17:00+12:00 progress {'step': 200, 'time': 2.0000000000000013, 'dt': 0.01}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 220, 'time': 2.199999999999997, 'dt': 0.01, 'total_energy': 1.4289376734436643e-09}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 252, 'time': 2.5199999999999902, 'dt': 0.01, 'total_energy': 5.2485330327750445e-09}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 283, 'time': 2.8299999999999836, 'dt': 0.01, 'total_energy': 1.8184424516200485e-08}
-2026-05-29T17:17:00+12:00 progress {'step': 300, 'time': 2.99999999999998, 'dt': 0.01}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 315, 'time': 3.149999999999977, 'dt': 0.01, 'total_energy': 6.538107840334538e-08}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 346, 'time': 3.45999999999997, 'dt': 0.01, 'total_energy': 2.257995543702448e-07}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 377, 'time': 3.7699999999999636, 'dt': 0.01, 'total_energy': 7.790516610113141e-07}
-2026-05-29T17:17:00+12:00 progress {'step': 400, 'time': 3.9999999999999587, 'dt': 0.01}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 409, 'time': 4.089999999999957, 'dt': 0.01, 'total_energy': 2.793001929893962e-06}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 440, 'time': 4.399999999999951, 'dt': 0.01, 'total_energy': 9.609073669025779e-06}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 472, 'time': 4.719999999999944, 'dt': 0.01, 'total_energy': 3.437649761721705e-05}
-2026-05-29T17:17:00+12:00 progress {'step': 500, 'time': 4.999999999999938, 'dt': 0.01}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 503, 'time': 5.029999999999937, 'dt': 0.01, 'total_energy': 0.0001181422725435309}
-2026-05-29T17:17:00+12:00 scalar diagnostics {'step': 535, 'time': 5.34999999999993, 'dt': 0.01, 'total_energy': 0.00042248057003125097}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 566, 'time': 5.659999999999924, 'dt': 0.01, 'total_energy': 0.0014518116403044775}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 597, 'time': 5.969999999999917, 'dt': 0.01, 'total_energy': 0.004988986080640327}
-2026-05-29T17:17:01+12:00 progress {'step': 600, 'time': 5.9999999999999165, 'dt': 0.01}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 629, 'time': 6.28999999999991, 'dt': 0.01, 'total_energy': 0.01784033594114344}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 660, 'time': 6.599999999999904, 'dt': 0.01, 'total_energy': 0.061304834465277125}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 692, 'time': 6.919999999999897, 'dt': 0.01, 'total_energy': 0.21921764467209817}
-2026-05-29T17:17:01+12:00 progress {'step': 700, 'time': 6.999999999999895, 'dt': 0.01}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 723, 'time': 7.22999999999989, 'dt': 0.01, 'total_energy': 0.7532879945001728}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 754, 'time': 7.539999999999884, 'dt': 0.01, 'total_energy': 2.588486142609906}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 786, 'time': 7.859999999999877, 'dt': 0.01, 'total_energy': 9.25600407019441}
-2026-05-29T17:17:01+12:00 progress {'step': 800, 'time': 7.999999999999874, 'dt': 0.01}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 817, 'time': 8.16999999999987, 'dt': 0.01, 'total_energy': 31.805934829614838}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 849, 'time': 8.489999999999863, 'dt': 0.01, 'total_energy': 113.7328234204753}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 880, 'time': 8.799999999999857, 'dt': 0.01, 'total_energy': 390.8142392088107}
-2026-05-29T17:17:01+12:00 progress {'step': 900, 'time': 8.999999999999853, 'dt': 0.01}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 912, 'time': 9.11999999999985, 'dt': 0.01, 'total_energy': 1397.4875314425665}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 943, 'time': 9.429999999999843, 'dt': 0.01, 'total_energy': 4802.113581829796}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 974, 'time': 9.739999999999837, 'dt': 0.01, 'total_energy': 16501.25219156143}
-2026-05-29T17:17:01+12:00 progress {'step': 1000, 'time': 9.999999999999831, 'dt': 0.01}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 1006, 'time': 10.05999999999983, 'dt': 0.01, 'total_energy': 59005.76143627999}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 1037, 'time': 10.369999999999823, 'dt': 0.01, 'total_energy': 202758.41536118955}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 1069, 'time': 10.689999999999817, 'dt': 0.01, 'total_energy': 725030.7145357867}
-2026-05-29T17:17:01+12:00 progress {'step': 1100, 'time': 10.99999999999981, 'dt': 0.01}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 1100, 'time': 10.99999999999981, 'dt': 0.01, 'total_energy': 2491385.164174204}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 1131, 'time': 11.309999999999803, 'dt': 0.01, 'total_energy': 8561016.666031843}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 1163, 'time': 11.629999999999797, 'dt': 0.01, 'total_energy': 30612786.1789115}
-2026-05-29T17:17:01+12:00 scalar diagnostics {'step': 1194, 'time': 11.93999999999979, 'dt': 0.01, 'total_energy': 105193117.51946814}
-2026-05-29T17:17:02+12:00 progress {'step': 1200, 'time': 11.999999999999789, 'dt': 0.01}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1226, 'time': 12.259999999999783, 'dt': 0.01, 'total_energy': 376153269.8472677}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1257, 'time': 12.569999999999776, 'dt': 0.01, 'total_energy': 1292555825.5576558}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1289, 'time': 12.88999999999977, 'dt': 0.01, 'total_energy': 4621966832.866324}
-2026-05-29T17:17:02+12:00 progress {'step': 1300, 'time': 12.999999999999767, 'dt': 0.01}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1320, 'time': 13.199999999999763, 'dt': 0.01, 'total_energy': 15882223110.121635}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1351, 'time': 13.509999999999756, 'dt': 0.01, 'total_energy': 54575253358.43023}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1383, 'time': 13.82999999999975, 'dt': 0.01, 'total_energy': 195152121034.79932}
-2026-05-29T17:17:02+12:00 progress {'step': 1400, 'time': 13.999999999999746, 'dt': 0.01}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1414, 'time': 14.139999999999743, 'dt': 0.01, 'total_energy': 670591035960.4788}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1446, 'time': 14.459999999999736, 'dt': 0.01, 'total_energy': 2397923142088.8955}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1477, 'time': 14.76999999999973, 'dt': 0.01, 'total_energy': 8239857991164.636}
-2026-05-29T17:17:02+12:00 progress {'step': 1500, 'time': 14.999999999999725, 'dt': 0.01}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1508, 'time': 15.079999999999723, 'dt': 0.01, 'total_energy': 28314193446334.68}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1540, 'time': 15.399999999999716, 'dt': 0.01, 'total_energy': 101246894267270.4}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1571, 'time': 15.70999999999971, 'dt': 0.01, 'total_energy': 347909412176483.56}
-2026-05-29T17:17:02+12:00 progress {'step': 1600, 'time': 15.999999999999703, 'dt': 0.01}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1603, 'time': 16.029999999999706, 'dt': 0.01, 'total_energy': 1244066780004716.0}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1634, 'time': 16.339999999999755, 'dt': 0.01, 'total_energy': 4274921668185372.0}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1666, 'time': 16.659999999999805, 'dt': 0.01, 'total_energy': 1.5286416085269174e+16}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1697, 'time': 16.969999999999853, 'dt': 0.01, 'total_energy': 5.252791281153619e+16}
-2026-05-29T17:17:02+12:00 progress {'step': 1700, 'time': 16.999999999999858, 'dt': 0.01}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1728, 'time': 17.2799999999999, 'dt': 0.01, 'total_energy': 1.8049892198048768e+17}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1760, 'time': 17.59999999999995, 'dt': 0.01, 'total_energy': 6.454344286283304e+17}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1791, 'time': 17.91, 'dt': 0.01, 'total_energy': 2.21787260031592e+18}
-2026-05-29T17:17:02+12:00 progress {'step': 1800, 'time': 18.000000000000014, 'dt': 0.01}
-2026-05-29T17:17:02+12:00 scalar diagnostics {'step': 1823, 'time': 18.23000000000005, 'dt': 0.01, 'total_energy': 7.930747280085588e+18}
-2026-05-29T17:17:03+12:00 scalar diagnostics {'step': 1854, 'time': 18.5400000000001, 'dt': 0.01, 'total_energy': 2.7252012462227665e+19}
-2026-05-29T17:17:03+12:00 scalar diagnostics {'step': 1885, 'time': 18.850000000000147, 'dt': 0.01, 'total_energy': 9.364466638677462e+19}
-2026-05-29T17:17:03+12:00 progress {'step': 1900, 'time': 19.00000000000017, 'dt': 0.01}
-2026-05-29T17:17:03+12:00 scalar diagnostics {'step': 1917, 'time': 19.170000000000197, 'dt': 0.01, 'total_energy': 3.3485790984370415e+20}
-2026-05-29T17:17:03+12:00 scalar diagnostics {'step': 1948, 'time': 19.480000000000246, 'dt': 0.01, 'total_energy': 1.1506547378013523e+21}
-2026-05-29T17:17:03+12:00 scalar diagnostics {'step': 1980, 'time': 19.800000000000296, 'dt': 0.01, 'total_energy': 4.114551904755692e+21}
-2026-05-29T17:17:03+12:00 progress {'step': 2000, 'time': 20.0, 'dt': 0.009999999999674714}
-2026-05-29T17:17:03+12:00 scalar diagnostics {'step': 2000, 'time': 20.0, 'dt': 0.009999999999674714, 'total_energy': 9.123962514762097e+21}
-2026-05-29T17:17:03+12:00 run complete {'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd', 'equation_mode': 'linear', 'grid': [16, 16, 16], 'steps': 2000, 't_final': 20.0, 'dt_last': 0.009999999999674714, 'total_energy_initial': 2.179792865134961e-24, 'total_energy_final': 9.123962514762097e+21, 'psi_hat_max_abs': 34052611824.10147, 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02', 'scalar_diagnostics_csv': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02\\scalar_diagnostics.csv'}
+2026-06-17T12:41:58+12:00 run start {'title': 'Inhomogeneous rmhd simulation test', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\nokia_inhomo_linear.input', 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02', 'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd_rho', 'equation_mode': 'linear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.3141592653589793, 'spectra': 0.0, 'full_field': 0.0}, 'hostname': 'Naoki', 'python_executable': 'C:\\Users\\naoki\\AppData\\Local\\Programs\\Python\\Python313\\python.exe', 'git_commit': 'af192df54ab76b1a58e42d47767e1b4fff28b045', 'command': "'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\run.py' 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\nokia_inhomo_linear.input' --output-dir 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02' --mode-kx 1 --mode-ky 1 --mode-kz 2"}
+2026-06-17T12:41:58+12:00 run setup {'resolved_output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02', 'input_file': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\nokia_inhomo_linear.input', 'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd_rho', 'equation_mode': 'linear', 'grid': [16, 16, 16], 'output_cadences': {'scalar': 0.3141592653589793, 'spectra': 0.0, 'full_field': 0.0}, 'dissipation_mode': 'manual', 'initial_condition': {'type': 'single_fourier_mode', 'parameters': {'k_indices': [1, 1, 2], 'amplitude': 1e-12, 'seed': 0}}}
+2026-06-17T12:41:58+12:00 scalar diagnostics {'step': 0, 'time': 0.0, 'dt': 0.0, 'total_energy': 1.6455073870128834e-24}
+2026-06-17T12:41:58+12:00 scalar diagnostics {'step': 32, 'time': 0.3200000000000001, 'dt': 0.01, 'total_energy': 2.6541936789930037e-19}
+2026-06-17T12:41:58+12:00 scalar diagnostics {'step': 63, 'time': 0.6300000000000003, 'dt': 0.01, 'total_energy': 5.58281882011762e-19}
+2026-06-17T12:41:58+12:00 scalar diagnostics {'step': 95, 'time': 0.9500000000000006, 'dt': 0.01, 'total_energy': 4.84365918056769e-19}
+2026-06-17T12:41:58+12:00 progress {'step': 100, 'time': 1.0000000000000007, 'dt': 0.01}
+2026-06-17T12:41:58+12:00 scalar diagnostics {'step': 126, 'time': 1.260000000000001, 'dt': 0.01, 'total_energy': 3.445051995001818e-19}
+2026-06-17T12:41:58+12:00 scalar diagnostics {'step': 158, 'time': 1.5800000000000012, 'dt': 0.01, 'total_energy': 5.789152557775686e-19}
+2026-06-17T12:41:58+12:00 scalar diagnostics {'step': 189, 'time': 1.8900000000000015, 'dt': 0.01, 'total_energy': 1.0214707651546795e-18}
+2026-06-17T12:41:58+12:00 progress {'step': 200, 'time': 2.0000000000000013, 'dt': 0.01}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 220, 'time': 2.199999999999997, 'dt': 0.01, 'total_energy': 1.1341605878561843e-18}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 252, 'time': 2.5199999999999902, 'dt': 0.01, 'total_energy': 7.4482865718184e-19}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 283, 'time': 2.8299999999999836, 'dt': 0.01, 'total_energy': 3.5291675031961335e-19}
+2026-06-17T12:41:59+12:00 progress {'step': 300, 'time': 2.99999999999998, 'dt': 0.01}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 315, 'time': 3.149999999999977, 'dt': 0.01, 'total_energy': 3.848714175316988e-19}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 346, 'time': 3.45999999999997, 'dt': 0.01, 'total_energy': 6.252480251989898e-19}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 377, 'time': 3.7699999999999636, 'dt': 0.01, 'total_energy': 5.827460301871713e-19}
+2026-06-17T12:41:59+12:00 progress {'step': 400, 'time': 3.9999999999999587, 'dt': 0.01}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 409, 'time': 4.089999999999957, 'dt': 0.01, 'total_energy': 2.756873135900988e-19}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 440, 'time': 4.399999999999951, 'dt': 0.01, 'total_energy': 3.261135522915249e-19}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 472, 'time': 4.719999999999944, 'dt': 0.01, 'total_energy': 1.0473780028133224e-18}
+2026-06-17T12:41:59+12:00 progress {'step': 500, 'time': 4.999999999999938, 'dt': 0.01}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 503, 'time': 5.029999999999937, 'dt': 0.01, 'total_energy': 1.8061701155540638e-18}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 535, 'time': 5.34999999999993, 'dt': 0.01, 'total_energy': 1.782385335398056e-18}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 566, 'time': 5.659999999999924, 'dt': 0.01, 'total_energy': 9.930012298239764e-19}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 597, 'time': 5.969999999999917, 'dt': 0.01, 'total_energy': 3.553297383925989e-19}
+2026-06-17T12:41:59+12:00 progress {'step': 600, 'time': 5.9999999999999165, 'dt': 0.01}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 629, 'time': 6.28999999999991, 'dt': 0.01, 'total_energy': 5.688024777345848e-19}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 660, 'time': 6.599999999999904, 'dt': 0.01, 'total_energy': 1.213877926550491e-18}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 692, 'time': 6.919999999999897, 'dt': 0.01, 'total_energy': 1.3527750600759115e-18}
+2026-06-17T12:41:59+12:00 progress {'step': 700, 'time': 6.999999999999895, 'dt': 0.01}
+2026-06-17T12:41:59+12:00 scalar diagnostics {'step': 723, 'time': 7.22999999999989, 'dt': 0.01, 'total_energy': 7.852168614684759e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 754, 'time': 7.539999999999884, 'dt': 0.01, 'total_energy': 3.4623749210487685e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 786, 'time': 7.859999999999877, 'dt': 0.01, 'total_energy': 7.97706496230482e-19}
+2026-06-17T12:42:00+12:00 progress {'step': 800, 'time': 7.999999999999874, 'dt': 0.01}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 817, 'time': 8.16999999999987, 'dt': 0.01, 'total_energy': 1.7306652438859905e-18}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 849, 'time': 8.489999999999863, 'dt': 0.01, 'total_energy': 2.0713687237480663e-18}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 880, 'time': 8.799999999999857, 'dt': 0.01, 'total_energy': 1.367067124669206e-18}
+2026-06-17T12:42:00+12:00 progress {'step': 900, 'time': 8.999999999999853, 'dt': 0.01}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 912, 'time': 9.11999999999985, 'dt': 0.01, 'total_energy': 3.5944193516496794e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 943, 'time': 9.429999999999843, 'dt': 0.01, 'total_energy': 8.575636308803802e-20}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 974, 'time': 9.739999999999837, 'dt': 0.01, 'total_energy': 5.340523442592336e-19}
+2026-06-17T12:42:00+12:00 progress {'step': 1000, 'time': 9.999999999999831, 'dt': 0.01}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1006, 'time': 10.05999999999983, 'dt': 0.01, 'total_energy': 9.234098674963077e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1037, 'time': 10.369999999999823, 'dt': 0.01, 'total_energy': 7.261302310096795e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1069, 'time': 10.689999999999817, 'dt': 0.01, 'total_energy': 3.4940160276335916e-19}
+2026-06-17T12:42:00+12:00 progress {'step': 1100, 'time': 10.99999999999981, 'dt': 0.01}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1100, 'time': 10.99999999999981, 'dt': 0.01, 'total_energy': 4.5797757578221685e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1131, 'time': 11.309999999999803, 'dt': 0.01, 'total_energy': 9.809178039848597e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1163, 'time': 11.629999999999797, 'dt': 0.01, 'total_energy': 1.264483605964291e-18}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1194, 'time': 11.93999999999979, 'dt': 0.01, 'total_energy': 9.254794674191429e-19}
+2026-06-17T12:42:00+12:00 progress {'step': 1200, 'time': 11.999999999999789, 'dt': 0.01}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1226, 'time': 12.259999999999783, 'dt': 0.01, 'total_energy': 3.556499194143581e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1257, 'time': 12.569999999999776, 'dt': 0.01, 'total_energy': 1.5797621984197623e-19}
+2026-06-17T12:42:00+12:00 scalar diagnostics {'step': 1289, 'time': 12.88999999999977, 'dt': 0.01, 'total_energy': 3.118328444400243e-19}
+2026-06-17T12:42:01+12:00 progress {'step': 1300, 'time': 12.999999999999767, 'dt': 0.01}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1320, 'time': 13.199999999999763, 'dt': 0.01, 'total_energy': 3.7630770388529743e-19}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1351, 'time': 13.509999999999756, 'dt': 0.01, 'total_energy': 2.4938220289722175e-19}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1383, 'time': 13.82999999999975, 'dt': 0.01, 'total_energy': 3.3523385776108695e-19}
+2026-06-17T12:42:01+12:00 progress {'step': 1400, 'time': 13.999999999999746, 'dt': 0.01}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1414, 'time': 14.139999999999743, 'dt': 0.01, 'total_energy': 8.779944382938417e-19}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1446, 'time': 14.459999999999736, 'dt': 0.01, 'total_energy': 1.4617899987889133e-18}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1477, 'time': 14.76999999999973, 'dt': 0.01, 'total_energy': 1.4120189962477806e-18}
+2026-06-17T12:42:01+12:00 progress {'step': 1500, 'time': 14.999999999999725, 'dt': 0.01}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1508, 'time': 15.079999999999723, 'dt': 0.01, 'total_energy': 7.966812910428992e-19}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1540, 'time': 15.399999999999716, 'dt': 0.01, 'total_energy': 3.469401355953657e-19}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1571, 'time': 15.70999999999971, 'dt': 0.01, 'total_energy': 5.943582123154249e-19}
+2026-06-17T12:42:01+12:00 progress {'step': 1600, 'time': 15.999999999999703, 'dt': 0.01}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1603, 'time': 16.029999999999706, 'dt': 0.01, 'total_energy': 1.112555965310974e-18}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1634, 'time': 16.339999999999755, 'dt': 0.01, 'total_energy': 1.1020749848487372e-18}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1666, 'time': 16.659999999999805, 'dt': 0.01, 'total_energy': 5.537493558863129e-19}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1697, 'time': 16.969999999999853, 'dt': 0.01, 'total_energy': 3.371158057046234e-19}
+2026-06-17T12:42:01+12:00 progress {'step': 1700, 'time': 16.999999999999858, 'dt': 0.01}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1728, 'time': 17.2799999999999, 'dt': 0.01, 'total_energy': 9.812373447335027e-19}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1760, 'time': 17.59999999999995, 'dt': 0.01, 'total_energy': 1.962865700750835e-18}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1791, 'time': 17.91, 'dt': 0.01, 'total_energy': 2.1445897955461e-18}
+2026-06-17T12:42:01+12:00 progress {'step': 1800, 'time': 18.000000000000014, 'dt': 0.01}
+2026-06-17T12:42:01+12:00 scalar diagnostics {'step': 1823, 'time': 18.23000000000005, 'dt': 0.01, 'total_energy': 1.286679375026544e-18}
+2026-06-17T12:42:02+12:00 scalar diagnostics {'step': 1854, 'time': 18.5400000000001, 'dt': 0.01, 'total_energy': 3.6480935408308936e-19}
+2026-06-17T12:42:02+12:00 scalar diagnostics {'step': 1885, 'time': 18.850000000000147, 'dt': 0.01, 'total_energy': 2.8600314796901875e-19}
+2026-06-17T12:42:02+12:00 progress {'step': 1900, 'time': 19.00000000000017, 'dt': 0.01}
+2026-06-17T12:42:02+12:00 scalar diagnostics {'step': 1917, 'time': 19.170000000000197, 'dt': 0.01, 'total_energy': 9.178862320019148e-19}
+2026-06-17T12:42:02+12:00 scalar diagnostics {'step': 1948, 'time': 19.480000000000246, 'dt': 0.01, 'total_energy': 1.2617525173389674e-18}
+2026-06-17T12:42:02+12:00 scalar diagnostics {'step': 1980, 'time': 19.800000000000296, 'dt': 0.01, 'total_energy': 8.639151278036038e-19}
+2026-06-17T12:42:02+12:00 progress {'step': 2000, 'time': 20.0, 'dt': 0.009999999999674714}
+2026-06-17T12:42:02+12:00 scalar diagnostics {'step': 2000, 'time': 20.0, 'dt': 0.009999999999674714, 'total_energy': 4.884019046464664e-19}
+2026-06-17T12:42:02+12:00 run complete {'backend': 'numpy', 'equation_set': 'inhomogeneous_rmhd_rho', 'equation_mode': 'linear', 'grid': [16, 16, 16], 'steps': 2000, 't_final': 20.0, 'dt_last': 0.009999999999674714, 'total_energy_initial': 1.6455073870128834e-24, 'total_energy_final': 4.884019046464664e-19, 'psi_hat_max_abs': 3.2154618601074807e-10, 'output_dir': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02', 'scalar_diagnostics_csv': 'C:\\Users\\naoki\\Downloads\\rmhd-gpu-new\\rmhdgpu\\diagnostics\\kz_scan\\runs_nokia\\kz_02\\scalar_diagnostics.csv'}

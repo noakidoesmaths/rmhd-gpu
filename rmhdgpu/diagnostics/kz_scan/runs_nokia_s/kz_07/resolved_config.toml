@@ -33,12 +33,13 @@ complex_dtype = "complex128"
 runtime_check_every = 10
 progress_output_every = 100
 fail_on_nonfinite = true
+project_kpar0 = false
 dealias = true
 dealias_mode = "two_thirds"
 
 [physics]
 vA = 1.0
-cs2_over_vA2 = 0.87
+cs2_over_vA2 = 1.0
 N2 = 1.0
 
 [forcing]
@@ -101,6 +102,6 @@ n_par = 1
 type = "single_fourier_mode"
 
 [initial_condition.parameters]
-k_indices = [3, 3, 7]
+k_indices = [1, 1, 7]
 amplitude = 1e-12
 seed = 0
