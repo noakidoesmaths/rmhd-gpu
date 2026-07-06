@@ -542,11 +542,21 @@ def total_energy_dissipation_rhs(
     xp = backend.xp
     p = derived_parameters(params)
     phi_hat = derive_phi_hat(state["omega"], grid)
+    s_hat = derive_s_hat(state["drho"], state["db_par"], params)
+    # s is diagnostic here: damping drho and db_par induces
+    # `s_t = -D_rho s + (gamma/chi)(D_b - D_rho) db_par`, so the entropy part
+    # of the budget carries a cross term that vanishes only when the drho and
+    # db_par operators are identical (e.g. auto-dissipation mode).
     density_hat = (
         -linear_ops["omega"] * grid.kperp2 * (xp.abs(phi_hat) ** 2)
         - linear_ops["psi"] * grid.kperp2 * (xp.abs(state["psi"]) ** 2)
         - linear_ops["du_par"] * xp.abs(state["du_par"]) ** 2
         - p.dbpar_energy_weight * linear_ops["db_par"] * xp.abs(state["db_par"]) ** 2
+        - p.entropy_energy_weight * linear_ops["drho"] * xp.abs(s_hat) ** 2
+        + p.entropy_energy_weight
+        * (p.gamma / p.chi)
+        * (linear_ops["db_par"] - linear_ops["drho"])
+        * xp.real(xp.conj(s_hat) * state["db_par"])
     )
     return modal_average(density_hat, grid, backend)
 

@@ -92,6 +92,56 @@ def _forcing_metadata(
         workspace.cache[cache_key] = metadata
     return metadata
 
+def _forcing_metadata_perp_prl(
+        grid: Any,
+        backend: Any,
+        *,
+        n_min_perp_force: float,
+        n_min_prl_force: float,
+        n_max_perp_force: float,
+        n_max_prl_force: float,
+        alpha_force: float,
+        workspace: Any | None = None,
+    ) -> dict[str, Any]:
+    cache_key = (
+        "forcing_metadata_perp_prl",
+        backend.backend_name,
+        grid.real_shape,
+        float(n_min_perp_force),
+        float(n_min_prl_force),
+        float(n_max_perp_force),
+        float(n_max_prl_force),
+        float(alpha_force),
+    )
+    if workspace is not None and cache_key in workspace.cache:
+        return workspace.cache[cache_key]
+
+    xp = backend.xp
+    nx = xp.fft.fftfreq(grid.Nx) * grid.Nx
+    ny = xp.fft.fftfreq(grid.Ny) * grid.Ny
+    nz = xp.fft.rfftfreq(grid.Nz) * grid.Nz
+    n_perp = xp.sqrt(
+        nx.reshape(grid.Nx, 1, 1) ** 2 + ny.reshape(1, grid.Ny, 1) ** 2
+    )
+    n_prl = xp.abs(nz).reshape(1, 1, grid.Nz // 2 + 1)
+
+    band_mask = (
+        (n_perp >= float(n_min_perp_force)) & (n_perp <= float(n_max_perp_force))
+        & (n_prl >= float(n_min_prl_force)) & (n_prl <= float(n_max_prl_force))
+    )
+    n_safe = xp.where(n_perp > 0.0, n_perp, 1.0)
+    shaping = xp.where(band_mask, n_safe ** (-float(alpha_force)), 0.0).astype(
+        grid.real_dtype,
+        copy=False,
+    )
+    metadata = {
+        "band_mask": band_mask,
+        "shaping": shaping,
+    }
+    if workspace is not None:
+        workspace.cache[cache_key] = metadata
+    return metadata
+
 
 def _standard_normal_field(
     rng: Any,
@@ -173,6 +223,68 @@ def shaped_random_real_field(
     shaped_hat[...] *= band_mask
     return shaped_real, shaped_hat
 
+def shaped_random_real_field_perp_prl(
+    grid: Any,
+    backend: Any,
+    fft: Any,
+    *,
+    n_min_perp_force: float,
+    n_min_prl_force: float,
+    n_max_perp_force: float,
+    n_max_prl_force: float,
+    alpha_force: float,
+    rng: Any,
+    band_mask: Any | None = None,
+    shaping: Any | None = None,
+    out_real: Any | None = None,
+    out_hat: Any | None = None,
+    workspace: Any | None = None,
+) -> tuple[Any, Any]:
+    """Return a unit-RMS real field and its Fourier transform. 
+
+    Same idea as before but explicitly calculates for n_min_parallel, n_min_perp,
+    n_max_parallel, n_max_perp.
+    Creates a mask for 
+    n_min_prl <= n_z <= n_max_prl 
+    and
+    n_min_prl <= sqrt(nx^2 + ny^2) <= n_max_prl
+    """
+
+    metadata = None
+    if band_mask is None or shaping is None:
+        metadata = _forcing_metadata_perp_prl(
+            grid,
+            backend,
+            n_min_perp_force=n_min_perp_force,
+            n_min_prl_force=n_min_prl_force,
+            n_max_perp_force=n_max_perp_force,
+            n_max_prl_force=n_max_prl_force,
+            alpha_force=alpha_force,
+            workspace=workspace,
+        )
+        if band_mask is None:
+            band_mask = metadata["band_mask"]
+        if shaping is None:
+            shaping = metadata["shaping"]
+
+    real_noise = _standard_normal_field(rng, grid.real_shape, grid.real_dtype, backend)
+
+    shaped_hat = fft.r2c(real_noise, out=out_hat)
+    shaped_hat[...] *= shaping
+    shaped_real = fft.c2r(shaped_hat, out=out_real)
+
+    rms = backend.scalar_to_float(backend.xp.sqrt(backend.xp.mean(shaped_real**2)))
+    if not np.isfinite(rms) or rms <= 0.0:
+        raise RuntimeError(
+            "Stochastic forcing produced a zero or non-finite filtered field. "
+            "Check the forcing band and spectral shaping parameters."
+        )
+
+    shaped_real[...] /= rms
+    shaped_hat = fft.r2c(shaped_real, out=shaped_hat)
+    shaped_hat[...] *= band_mask
+    return shaped_real, shaped_hat
+    
 
 def generate_forcing_kick(
     state: State,

@@ -314,7 +314,7 @@ def linear_matrix(kx: float, ky: float, kz: float, params: Any) -> np.ndarray:
         matrix[4, 1] = -iky * p.K_s/kperp2
         
     matrix[1, 2] = p.g / p.chi * iky
-    matrix[1, 4] = iky * p.g/p.gamma
+    matrix[1, 4] = iky * p.g / p.gamma
     matrix[2, 3] = p.alpha * ikz
     matrix[3, 0] = -iky * p.vA * p.K_b0
     matrix[3, 2] = ikz * p.vA ** 2

@@ -26,7 +26,7 @@ from typing import Any
 import numpy as np
 
 from rmhdgpu.equations import get_equation_module
-from rmhdgpu.forcing import shaped_random_real_field
+from rmhdgpu.forcing import shaped_random_real_field, shaped_random_real_field_perp_prl
 from rmhdgpu.initconds.eigenmodes_low_beta_stratified import low_beta_stratified_mode_state
 from rmhdgpu.initconds.eigenmodes_s09 import alfven_mode_state
 from rmhdgpu.masks import apply_mask
@@ -45,6 +45,17 @@ RANDOM_SPECTRUM_DEFAULTS = {
     "init_energy": 0.75,
     "seed": 0,
     "exclude_kpar0": True,   # drop the marginal k_par=0, k_perp!=0 plane
+}
+
+RANDOM_SPECTRUM_ONE_WAVE_DEFAULTS = {
+    "n_min_perp": 1.0,
+    "n_min_prl": 1.0,
+    "n_max_perp": 3.0,
+    "n_max_prl": 3.0,
+    "alpha": 0.0,
+    "init_energy": 0.75,
+    "seed": 0,
+    "exclude_kpar0": True,
 }
 
 
@@ -387,6 +398,37 @@ def _normalize_random_spectrum_parameters(parameters: dict[str, Any]) -> dict[st
 
     return normalized
 
+def _normalize_random_spectrum_one_wave_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    _reject_unknown_parameters("random_spectrum_one_wave", parameters, set(RANDOM_SPECTRUM_ONE_WAVE_DEFAULTS))
+
+    normalized = dict(RANDOM_SPECTRUM_ONE_WAVE_DEFAULTS)
+    normalized.update(parameters)
+
+    for key in ("n_min_perp", "n_min_prl", "n_max_perp", "n_max_prl", "alpha", "init_energy"):
+        normalized[key] = float(normalized[key])
+        if not np.isfinite(normalized[key]):
+            raise ValueError(f"{key} must be finite; got {normalized[key]!r}.")
+
+    normalized["seed"] = int(normalized["seed"])
+    normalized["exclude_kpar0"] = bool(normalized["exclude_kpar0"])
+
+    if normalized["n_min_perp"] < 0.0 or normalized["n_min_prl"] < 0.0:
+        raise ValueError(
+            f"n_min_perp and n_min_prl must be nonnegative; got "
+            f"n_min_perp={normalized['n_min_perp']!r}, n_min_prl={normalized['n_min_prl']!r}."
+        )
+    if normalized["n_max_perp"] < normalized["n_min_perp"] or normalized["n_max_prl"] < normalized["n_min_prl"]:
+        raise ValueError(
+            f"n_max must be at least n_min in each direction; got "
+            f"perp=({normalized['n_min_perp']!r}, {normalized['n_max_perp']!r}), "
+            f"prl=({normalized['n_min_prl']!r}, {normalized['n_max_prl']!r})."
+        )
+    if normalized["alpha"] < 0.0:
+        raise ValueError(f"alpha must be nonnegative; got {normalized['alpha']!r}.")
+    if normalized["init_energy"] == 0.0:
+        raise ValueError("init_energy must be nonzero so the spectrum can be normalized.")
+
+    return normalized
 
 def _rescale_state_to_total_energy(
     state: State,
@@ -609,6 +651,76 @@ def random_spectrum(
             rng=rng,
         )
         state[field_name][...] = field_hat
+
+    if dealias_mask is not None:
+        state.apply_mask(dealias_mask)
+
+    # Drop the k_par = 0 plane: it is a marginal (zero-frequency, defective)
+    # subspace where psi is frozen and du_par is driven secularly by
+    # -vA*K_b0*dy(psi), so seeding it makes total_energy grow ~ t^2. Applied
+    # before energy rescaling so init_energy is normalized over surviving modes.
+    if normalized["exclude_kpar0"]:
+        kpar_nonzero = grid.kz != 0
+        for field_name in state.field_names:
+            state[field_name][...] *= kpar_nonzero
+
+    return _rescale_state_to_total_energy(
+        state,
+        target_energy=normalized["init_energy"],
+        grid=grid,
+        backend=backend,
+        params=params,
+    )
+
+@register_initial_condition(
+    "random_spectrum_one_wave",
+    normalize_parameters=_normalize_random_spectrum_one_wave_parameters,
+    description="Band-limited random pure z^+ Alfvenic state (Phi = Psi), compressive fields zero.",
+)
+def random_spectrum_one_wave(
+    *,
+    parameters: Mapping[str, Any] | None = None,
+    grid: Any,
+    backend: Any,
+    fft: Any,
+    dealias_mask: Any | None,
+    field_names: Sequence[str],
+    params: Any,
+) -> State:
+    """Build a random multifield spectrum for the active equation set.
+
+    We send one alfven wave, so we set an initial condition of z+, and rest
+    of the evolution fields to be 0. Hence we set the initial condition 
+    of Phi to some random number then set Psi = Phi, and rest of the variables to 0. 
+    
+    The variable Phi gets an independent random real field whose support is
+    limited to the shell band `n_min_prl <= n_z <= n_max_prl`, 'n_min_perp <= 
+    sqrt(nx^2 + ny^2) <= n_max_perp, where `n` is the integer
+    mode-number magnitude.  The Fourier amplitudes are shaped so the modal
+    energy is approximately proportional to `n^(-alpha)`. The complete state is
+    then rescaled so the equation-module `total_energy(...)` equals
+    `init_energy`.
+    """
+
+    state = State(grid, backend, field_names=list(field_names))
+    normalized = _normalize_random_spectrum_one_wave_parameters(_as_parameter_dict(parameters))
+    rng = backend.random_generator(normalized["seed"])
+
+    
+    _, psi_hat = shaped_random_real_field_perp_prl(
+            grid,
+            backend,
+            fft,
+            n_min_perp_force=normalized["n_min_perp"],
+            n_min_prl_force=normalized["n_min_prl"],
+            n_max_perp_force=normalized["n_max_perp"],
+            n_max_prl_force=normalized["n_max_prl"],
+            alpha_force=0.5 * normalized["alpha"],
+            rng=rng,
+        )
+    state["psi"][...] = psi_hat
+
+    state["omega"][...] = lap_perp(psi_hat, grid)
 
     if dealias_mask is not None:
         state.apply_mask(dealias_mask)

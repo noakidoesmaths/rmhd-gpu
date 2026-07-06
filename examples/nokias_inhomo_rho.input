@@ -11,11 +11,10 @@
 #   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
 
 title = "Inhomogeneous rmhd simulation test"
-output_dir = "outputs_nokia_rmhd_rho_3"
+output_dir = "outputs_nokia_rmhd_47_rho"
 
 [equations]
 type = "inhomogeneous_rmhd_rho"
-mode = "linear"
 
 [grid]
 Nx = 32
@@ -33,8 +32,8 @@ cfl_number = 0.5
 
 [output]
 t_out_scal = 0.25
-t_out_spec = 0.0
-t_out_full = 0.0
+t_out_spec = 0.25
+t_out_full = 0.75
 
 [backend]
 backend = "numpy"
@@ -42,18 +41,20 @@ backend = "numpy"
 [physics]
 vA = 1.0
 cs2_over_vA2 = 1.0
-g = 3.0
-K_p0 = 1.1
-K_rho0 = 6.5
+K_rho0 = -1.5
+g = -1.2
+K_p0 = 0.4
 
 [initial_condition]
-type = "random_spectrum"
+type = "random_spectrum_one_wave"
 
 [initial_condition.parameters]
-n_min = 1.0
-n_max = 3.0
+n_min_perp = 2.0
+n_max_perp = 8.0
+n_min_prl = 3.0
+n_max_prl = 4.0
 alpha = 0.0
-init_energy = 0.75
+init_energy = 1.0
 seed = 1
 exclude_kpar0 = true
 
