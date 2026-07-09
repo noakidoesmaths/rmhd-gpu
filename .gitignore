@@ -11,5 +11,6 @@ examples/outputs_*/
 *.log
 *.csv
 *.png
+*.mp4
 
 .claude
