@@ -203,6 +203,7 @@ def main(argv: list[str] | None = None) -> Path:
             vmin, vmax = vmin - 1.0, vmax + 1.0
 
     xlabel, ylabel, extent = _slice_axes(slice_dir=args.slice_dir, x=x, y=y, z=z)
+    slice_coordinate = float({"x": x, "y": y, "z": z}[args.slice_dir][slice_index])
 
     fig, ax = plt.subplots(figsize=(6.0, 5.0), constrained_layout=True)
     first = frames[0][3]
@@ -224,7 +225,7 @@ def main(argv: list[str] | None = None) -> Path:
         _key, time_value, step_value, slice_data = frames[frame_index]
         image.set_data(slice_data.T)
         title.set_text(
-            f"{args.field}  {args.slice_dir}={slice_index}  "
+            f"{args.field}  {args.slice_dir}={slice_coordinate:.3f} (index {slice_index})  "
             f"t={time_value:.3f}  step={step_value}"
         )
         return image, title

@@ -417,6 +417,21 @@ def perpendicular_energy_spectra(
         backend,
         bin_width=bin_width,
     )
+    # Elsasser fields z± = u_perp ± b_perp/sqrt(4 pi rho0) = z_hat x grad_perp(phi ± psi).
+    # The 1/4 weight is the standard pseudo-energy normalization, so that
+    # z_plus + z_minus = u_perp + b_perp shell by shell.
+    _, z_plus = perpendicular_shell_spectrum(
+        0.25 * kperp2 * (xp.abs(phi_hat + state["psi"]) ** 2),
+        grid,
+        backend,
+        bin_width=bin_width,
+    )
+    _, z_minus = perpendicular_shell_spectrum(
+        0.25 * kperp2 * (xp.abs(phi_hat - state["psi"]) ** 2),
+        grid,
+        backend,
+        bin_width=bin_width,
+    )
     return {
         "kperp": kperp,
         "u_perp": u_perp,
@@ -424,6 +439,8 @@ def perpendicular_energy_spectra(
         "du_par": du_par,
         "db_par": db_par,
         "s": s,
+        "z_plus": z_plus,
+        "z_minus": z_minus,
     }
 
 

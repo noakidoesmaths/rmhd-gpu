@@ -11,7 +11,7 @@
 #   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
 
 title = "Inhomogeneous rmhd simulation test"
-output_dir = "outputs_nokia_rmhd_47_rho"
+output_dir = "outputs_nokia_rmhd_8_rho"
 
 [equations]
 type = "inhomogeneous_rmhd_rho"
@@ -25,15 +25,15 @@ Nz = 32
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
 
-tmax = 50.0
-dt_init = 2.0e-3
+tmax = 75.0
+dt_init = 0.5e-4
 use_variable_dt = true
 cfl_number = 0.5
 
 [output]
 t_out_scal = 0.25
-t_out_spec = 0.25
-t_out_full = 0.75
+t_out_spec = 0.05
+t_out_full = 0.0
 
 [backend]
 backend = "numpy"
@@ -41,18 +41,18 @@ backend = "numpy"
 [physics]
 vA = 1.0
 cs2_over_vA2 = 1.0
-K_rho0 = -1.5
-g = -1.2
-K_p0 = 0.4
+K_rho0 = 0.0
+g = 0.0
+K_p0 = 0.0
 
 [initial_condition]
 type = "random_spectrum_one_wave"
 
 [initial_condition.parameters]
-n_min_perp = 2.0
-n_max_perp = 8.0
+n_min_perp = 4.0
+n_max_perp = 5.0
 n_min_prl = 3.0
-n_max_prl = 4.0
+n_max_prl = 3.0
 alpha = 0.0
 init_energy = 1.0
 seed = 1
@@ -67,13 +67,13 @@ progress_output_every = 100
 
 [dissipation]
 mode = "auto"
-n_perp = 3
+n_perp = 2
 n_par = 1
 nu_par = 0.0
 kd_fraction = 0.6
 shell_half_width = 0.5
 update_every = 10
 smooth_factor = 0.2
-nu_min = 1e-12
+nu_min = 1e-6
 nu_max = 1e-2
 max_update_factor = 2.0
