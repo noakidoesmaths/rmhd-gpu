@@ -11,7 +11,7 @@
 #   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
 
 title = "Inhomogeneous rmhd simulation test"
-output_dir = "outputs_nokia_rmhd_s_26"
+output_dir = "outputs_nokia_rmhd_s_proj_off"
 
 [equations]
 type = "inhomogeneous_rmhd_s"
@@ -75,6 +75,6 @@ kd_fraction = 0.6
 shell_half_width = 0.5
 update_every = 10
 smooth_factor = 0.2
-nu_min = 1e-12
-nu_max = 1e-2
+nu_min = 1e-6
+nu_max = 1.0
 max_update_factor = 2.0

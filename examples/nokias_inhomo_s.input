@@ -11,7 +11,7 @@
 #   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
 
 title = "Inhomogeneous rmhd simulation test"
-output_dir = "outputs_nokia_rmhd_10_s_alpha_2.0"
+output_dir = "outputs_nokia_rmhd_13_s"
 
 [equations]
 type = "inhomogeneous_rmhd_s"
@@ -27,14 +27,14 @@ Nz = 32
 
 # Run long enough to see the instability grow, turn over, and settle into a
 # dissipation-limited saturated state (not just the initial growth phase).
-tmax = 12.56
+tmax = 30.0
 dt_init = 0.5e-4
 use_variable_dt = true
 cfl_number = 0.5
 
 [output]
 t_out_scal = 0.25
-t_out_spec = 0.1
+t_out_spec = 0.05
 t_out_full = 0.0
 
 [backend]
@@ -44,18 +44,18 @@ backend = "numpy"
 vA = 1.0
 cs2_over_vA2 = 1.0
 K_rho0 = 5.0
-g = 1.0
-K_p0 = 1.0
+g = 0.0
+K_p0 = 0.0
 
 [initial_condition]
 type = "random_spectrum_one_wave"
 
 [initial_condition.parameters]
-n_min_perp = 2.0
-n_max_perp = 9.0
-n_min_prl = 3.0
-n_max_prl = 3.0
-alpha = 2.0
+n_min_perp = 1.0
+n_max_perp = 3.0
+n_min_prl = 1.0
+n_max_prl = 2.0
+alpha = 0.0
 init_energy = 1.0
 seed = 1
 exclude_kpar0 = true
@@ -70,12 +70,12 @@ project_kpar0 = true
 
 [dissipation]
 mode = "auto"
-n_perp = 3
+n_perp = 2
 n_par = 1
 nu_par = 0.0
 kd_fraction = 0.6
 shell_half_width = 0.5
-update_every = 2
+update_every = 10
 smooth_factor = 0.2
 nu_min = 1e-6
 nu_max = 1.0

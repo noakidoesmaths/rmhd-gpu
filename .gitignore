@@ -6,6 +6,8 @@ quick_tests/*
 .codex
 # Ignore simulation outputs
 examples/outputs_*/
+examples/nokias_inhomo_rho.input
+examples/nokias_inhomo_s.input
 
 # Ignore generated files
 *.log
