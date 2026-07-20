@@ -25,7 +25,7 @@ Nz = 32
 # The old sanity script advanced to 0.5 Alfven times. With the default
 # periodic box and vA = 1, that is t = pi.
 
-tmax = 30.0
+tmax = 12.56
 dt_init = 0.5e-4
 use_variable_dt = true
 cfl_number = 0.5
@@ -33,7 +33,7 @@ cfl_number = 0.5
 [output]
 t_out_scal = 0.25
 t_out_spec = 0.05
-t_out_full = 0.0
+t_out_full = 0.2
 
 [backend]
 backend = "numpy"
@@ -41,7 +41,7 @@ backend = "numpy"
 [physics]
 vA = 1.0
 cs2_over_vA2 = 1.0
-K_rho0 = 5.0
+K_rho0 = 1.5
 g = 0.0
 K_p0 = 0.0
 

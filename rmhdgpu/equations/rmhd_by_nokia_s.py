@@ -49,7 +49,7 @@ from rmhdgpu.diagnostics.budget import flatten_conserved_quantity_budgets
 from rmhdgpu.diagnostics.scalar import STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO
 from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
 from rmhdgpu.operators import dy, dz, inv_lap_perp, lap_perp, poisson_bracket
-from rmhdgpu.diagnostics.spectra import perpendicular_shell_spectrum
+from rmhdgpu.diagnostics.spectra import parallel_shell_spectrum, perpendicular_shell_spectrum
 from rmhdgpu.state import State
 
 
@@ -372,6 +372,33 @@ def build_dissipation_operators(
     }
 
 
+def _energy_modal_densities(
+    state: State,
+    grid: Any,
+    backend: Any,
+    params: Any | None,
+) -> dict[str, Any]:
+    """Return the modal energy densities binned into the shell spectra."""
+
+    xp = backend.xp
+    p = derived_parameters(params)
+    phi_hat = derive_phi_hat(state["omega"], grid)
+    kperp2 = grid.kperp2
+
+    # Elsasser fields z± = u_perp ± b_perp/sqrt(4 pi rho0) = z_hat x grad_perp(phi ± psi).
+    # The 1/4 weight is the standard pseudo-energy normalization, so that
+    # z_plus + z_minus = u_perp + b_perp shell by shell.
+    return {
+        "u_perp": 0.5 * kperp2 * (xp.abs(phi_hat) ** 2),
+        "b_perp": 0.5 * kperp2 * (xp.abs(state["psi"]) ** 2),
+        "du_par": 0.5 * (xp.abs(state["du_par"]) ** 2),
+        "db_par": 0.5 * p.dbpar_energy_weight * (xp.abs(state["db_par"]) ** 2),
+        "s": 0.5 * p.entropy_energy_weight * (xp.abs(state["s"]) ** 2),
+        "z_plus": 0.25 * kperp2 * (xp.abs(phi_hat + state["psi"]) ** 2),
+        "z_minus": 0.25 * kperp2 * (xp.abs(phi_hat - state["psi"]) ** 2),
+    }
+
+
 def perpendicular_energy_spectra(
     state: State,
     grid: Any,
@@ -382,66 +409,30 @@ def perpendicular_energy_spectra(
 ) -> dict[str, np.ndarray]:
     """Return the inhomogeneous rmhd shell spectra."""
 
-    xp = backend.xp
-    p = derived_parameters(params)
-    phi_hat = derive_phi_hat(state["omega"], grid)
-    kperp2 = grid.kperp2
+    spectra: dict[str, np.ndarray] = {}
+    for name, density in _energy_modal_densities(state, grid, backend, params).items():
+        kperp, spectrum = perpendicular_shell_spectrum(density, grid, backend, bin_width=bin_width)
+        spectra.setdefault("kperp", kperp)
+        spectra[name] = spectrum
+    return spectra
 
-    kperp, u_perp = perpendicular_shell_spectrum(
-        0.5 * kperp2 * (xp.abs(phi_hat) ** 2),
-        grid,
-        backend,
-        bin_width=bin_width,
-    )
-    _, b_perp = perpendicular_shell_spectrum(
-        0.5 * kperp2 * (xp.abs(state["psi"]) ** 2),
-        grid,
-        backend,
-        bin_width=bin_width,
-    )
-    _, du_par = perpendicular_shell_spectrum(
-        0.5 * (xp.abs(state["du_par"]) ** 2),
-        grid,
-        backend,
-        bin_width=bin_width,
-    )
-    _, db_par = perpendicular_shell_spectrum(
-        0.5 * p.dbpar_energy_weight * (xp.abs(state["db_par"]) ** 2),
-        grid,   
-        backend,
-        bin_width=bin_width,
-    )
-    _, s = perpendicular_shell_spectrum(
-        0.5 * p.entropy_energy_weight * (xp.abs(state["s"]) ** 2),
-        grid,
-        backend,
-        bin_width=bin_width,
-    )
-    # Elsasser fields z± = u_perp ± b_perp/sqrt(4 pi rho0) = z_hat x grad_perp(phi ± psi).
-    # The 1/4 weight is the standard pseudo-energy normalization, so that
-    # z_plus + z_minus = u_perp + b_perp shell by shell.
-    _, z_plus = perpendicular_shell_spectrum(
-        0.25 * kperp2 * (xp.abs(phi_hat + state["psi"]) ** 2),
-        grid,
-        backend,
-        bin_width=bin_width,
-    )
-    _, z_minus = perpendicular_shell_spectrum(
-        0.25 * kperp2 * (xp.abs(phi_hat - state["psi"]) ** 2),
-        grid,
-        backend,
-        bin_width=bin_width,
-    )
-    return {
-        "kperp": kperp,
-        "u_perp": u_perp,
-        "b_perp": b_perp,
-        "du_par": du_par,
-        "db_par": db_par,
-        "s": s,
-        "z_plus": z_plus,
-        "z_minus": z_minus,
-    }
+
+def parallel_energy_spectra(
+    state: State,
+    grid: Any,
+    backend: Any,
+    *,
+    bin_width: float | None = None,
+    params: Any | None = None,
+) -> dict[str, np.ndarray]:
+    """Return the inhomogeneous rmhd parallel (kz) shell spectra."""
+
+    spectra: dict[str, np.ndarray] = {}
+    for name, density in _energy_modal_densities(state, grid, backend, params).items():
+        kprl, spectrum = parallel_shell_spectrum(density, grid, backend, bin_width=bin_width)
+        spectra.setdefault("kprl", kprl)
+        spectra[name] = spectrum
+    return spectra
 
 
 def total_energy_modal_density(state: State, grid: Any, backend: Any, params: Any) -> Any:

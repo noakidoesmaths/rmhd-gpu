@@ -28,6 +28,7 @@ from rmhdgpu.diagnostics.fullfield import extract_full_fields
 
 SCALAR_DIAGNOSTICS_FILENAME = "scalar_diagnostics.csv"
 SPECTRA_DIAGNOSTICS_FILENAME = "spectra.csv"
+SPECTRA_PRL_DIAGNOSTICS_FILENAME = "spectra_prl.csv"
 FULLFIELD_DIAGNOSTICS_DIRNAME = "fullfields"
 OUTPUT_TIME_TOLERANCE = 1.0e-15
 
@@ -96,14 +97,20 @@ class ScalarDiagnosticsWriter:
 
 
 class SpectraDiagnosticsWriter:
-    """Append tidy/long perpendicular spectra rows to a CSV file."""
+    """Append tidy/long shell spectra rows to a CSV file.
 
-    def __init__(self, path: str | Path) -> None:
+    `k_column` names the wavenumber column ("kperp" for perpendicular
+    spectra, "kprl" for parallel spectra) and must match the key holding the
+    shell centers in the spectra dict passed to `write_spectra`.
+    """
+
+    def __init__(self, path: str | Path, k_column: str = "kperp") -> None:
         self.path = Path(path)
+        self.k_column = k_column
         self._handle = self.path.open("w", encoding="utf-8", newline="")
         self._writer = csv.DictWriter(
             self._handle,
-            fieldnames=["time", "step", "quantity", "kperp", "value"],
+            fieldnames=["time", "step", "quantity", k_column, "value"],
         )
         self._writer.writeheader()
 
@@ -114,16 +121,16 @@ class SpectraDiagnosticsWriter:
         step: int,
         spectra: dict[str, np.ndarray],
     ) -> None:
-        kperp = np.asarray(spectra["kperp"], dtype=np.float64)
-        for quantity in [key for key in spectra if key != "kperp"]:
+        k_values = np.asarray(spectra[self.k_column], dtype=np.float64)
+        for quantity in [key for key in spectra if key != self.k_column]:
             values = np.asarray(spectra[quantity], dtype=np.float64)
-            for k_value, spectrum_value in zip(kperp, values, strict=True):
+            for k_value, spectrum_value in zip(k_values, values, strict=True):
                 self._writer.writerow(
                     {
                         "time": float(time),
                         "step": int(step),
                         "quantity": quantity,
-                        "kperp": float(k_value),
+                        self.k_column: float(k_value),
                         "value": float(spectrum_value),
                     }
                 )

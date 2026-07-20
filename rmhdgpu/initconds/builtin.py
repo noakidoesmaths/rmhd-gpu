@@ -53,6 +53,7 @@ RANDOM_SPECTRUM_ONE_WAVE_DEFAULTS = {
     "n_max_perp": 3.0,
     "n_max_prl": 3.0,
     "alpha": 0.0,
+    "alpha_prl": 0.0,
     "init_energy": 0.75,
     "seed": 0,
     "exclude_kpar0": True,
@@ -404,7 +405,7 @@ def _normalize_random_spectrum_one_wave_parameters(parameters: dict[str, Any]) -
     normalized = dict(RANDOM_SPECTRUM_ONE_WAVE_DEFAULTS)
     normalized.update(parameters)
 
-    for key in ("n_min_perp", "n_min_prl", "n_max_perp", "n_max_prl", "alpha", "init_energy"):
+    for key in ("n_min_perp", "n_min_prl", "n_max_perp", "n_max_prl", "alpha", "alpha_prl", "init_energy"):
         normalized[key] = float(normalized[key])
         if not np.isfinite(normalized[key]):
             raise ValueError(f"{key} must be finite; got {normalized[key]!r}.")
@@ -425,6 +426,8 @@ def _normalize_random_spectrum_one_wave_parameters(parameters: dict[str, Any]) -
         )
     if normalized["alpha"] < 0.0:
         raise ValueError(f"alpha must be nonnegative; got {normalized['alpha']!r}.")
+    if normalized["alpha_prl"] < 0.0:
+        raise ValueError(f"alpha_prl must be nonnegative; got {normalized['alpha_prl']!r}.")
     if normalized["init_energy"] == 0.0:
         raise ValueError("init_energy must be nonzero so the spectrum can be normalized.")
 
@@ -694,10 +697,11 @@ def random_spectrum_one_wave(
     of Phi to some random number then set Psi = Phi, and rest of the variables to 0. 
     
     The variable Phi gets an independent random real field whose support is
-    limited to the shell band `n_min_prl <= n_z <= n_max_prl`, 'n_min_perp <= 
+    limited to the shell band `n_min_prl <= n_z <= n_max_prl`, 'n_min_perp <=
     sqrt(nx^2 + ny^2) <= n_max_perp, where `n` is the integer
     mode-number magnitude.  The Fourier amplitudes are shaped so the modal
-    energy is approximately proportional to `n^(-alpha)`. The complete state is
+    energy is approximately proportional to
+    `n_perp^(-alpha) * n_prl^(-alpha_prl)`. The complete state is
     then rescaled so the equation-module `total_energy(...)` equals
     `init_energy`.
     """
@@ -716,6 +720,7 @@ def random_spectrum_one_wave(
             n_max_perp_force=normalized["n_max_perp"],
             n_max_prl_force=normalized["n_max_prl"],
             alpha_force=0.5 * normalized["alpha"],
+            alpha_prl_force=0.5 * normalized["alpha_prl"],
             rng=rng,
         )
     state["psi"][...] = psi_hat

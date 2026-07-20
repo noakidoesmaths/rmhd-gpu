@@ -69,6 +69,36 @@ def perpendicular_shell_spectrum(
     return centers, spectrum
 
 
+def parallel_shell_spectrum(
+    density_hat: Any,
+    grid: Any,
+    backend: Any,
+    bin_width: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Bin a Fourier-space modal density into parallel (kz) shells.
+
+    The rFFT axis is z, so every last-axis index already holds a single
+    `|kz|` value: the shell spectrum is just the modal density summed over
+    `(kx, ky)` per kz index, with the omitted negative-`kz` half of the real
+    FFT accounted for by the standard one-sided rFFT weights. `bin_width` is
+    accepted for signature symmetry with `perpendicular_shell_spectrum` and
+    ignored.
+
+    The returned normalization matches `perpendicular_shell_spectrum`: shell
+    values sum to the total weighted modal density divided by `N^2`, where
+    `N = Nx * Ny * Nz`.
+    """
+
+    density_np = backend.to_numpy(density_hat)
+    _, weights = _cached_spectrum_grid_arrays(grid, backend)
+    normalization = float(np.prod(grid.real_shape) ** 2)
+    modal_density = weights * density_np / normalization
+
+    kprl = backend.to_numpy(grid.kz).ravel().astype(np.float64)
+    spectrum = modal_density.sum(axis=(0, 1))
+    return kprl, spectrum
+
+
 def perpendicular_energy_spectrum_from_state(
     state: Any,
     grid: Any,
@@ -100,6 +130,41 @@ def perpendicular_energy_spectrum_from_state(
         )
         if index == 0:
             spectra["kperp"] = kperp
+        spectra[field_name] = spectrum
+    return spectra
+
+
+def parallel_energy_spectrum_from_state(
+    state: Any,
+    grid: Any,
+    backend: Any | None = None,
+    bin_width: float | None = None,
+    equation_module: Any | None = None,
+    params: Any | None = None,
+) -> dict[str, np.ndarray]:
+    """Return parallel (kz) shell spectra for the selected equation set."""
+
+    backend_obj = state.backend if backend is None else backend
+    if equation_module is not None and hasattr(equation_module, "parallel_energy_spectra"):
+        return equation_module.parallel_energy_spectra(
+            state,
+            grid,
+            backend_obj,
+            bin_width=bin_width,
+            params=params,
+        )
+
+    xp = backend_obj.xp
+    spectra: dict[str, np.ndarray] = {}
+    for index, field_name in enumerate(state.field_names):
+        kprl, spectrum = parallel_shell_spectrum(
+            0.5 * xp.abs(state[field_name]) ** 2,
+            grid,
+            backend_obj,
+            bin_width=bin_width,
+        )
+        if index == 0:
+            spectra["kprl"] = kprl
         spectra[field_name] = spectrum
     return spectra
 

@@ -101,6 +101,7 @@ def _forcing_metadata_perp_prl(
         n_max_perp_force: float,
         n_max_prl_force: float,
         alpha_force: float,
+        alpha_prl_force: float = 0.0,
         workspace: Any | None = None,
     ) -> dict[str, Any]:
     cache_key = (
@@ -112,6 +113,7 @@ def _forcing_metadata_perp_prl(
         float(n_max_perp_force),
         float(n_max_prl_force),
         float(alpha_force),
+        float(alpha_prl_force),
     )
     if workspace is not None and cache_key in workspace.cache:
         return workspace.cache[cache_key]
@@ -130,7 +132,12 @@ def _forcing_metadata_perp_prl(
         & (n_prl >= float(n_min_prl_force)) & (n_prl <= float(n_max_prl_force))
     )
     n_safe = xp.where(n_perp > 0.0, n_perp, 1.0)
-    shaping = xp.where(band_mask, n_safe ** (-float(alpha_force)), 0.0).astype(
+    n_prl_safe = xp.where(n_prl > 0.0, n_prl, 1.0)
+    shaping = xp.where(
+        band_mask,
+        n_safe ** (-float(alpha_force)) * n_prl_safe ** (-float(alpha_prl_force)),
+        0.0,
+    ).astype(
         grid.real_dtype,
         copy=False,
     )
@@ -233,6 +240,7 @@ def shaped_random_real_field_perp_prl(
     n_max_perp_force: float,
     n_max_prl_force: float,
     alpha_force: float,
+    alpha_prl_force: float = 0.0,
     rng: Any,
     band_mask: Any | None = None,
     shaping: Any | None = None,
@@ -240,14 +248,18 @@ def shaped_random_real_field_perp_prl(
     out_hat: Any | None = None,
     workspace: Any | None = None,
 ) -> tuple[Any, Any]:
-    """Return a unit-RMS real field and its Fourier transform. 
+    """Return a unit-RMS real field and its Fourier transform.
 
     Same idea as before but explicitly calculates for n_min_parallel, n_min_perp,
     n_max_parallel, n_max_perp.
-    Creates a mask for 
-    n_min_prl <= n_z <= n_max_prl 
+    Creates a mask for
+    n_min_prl <= n_z <= n_max_prl
     and
     n_min_prl <= sqrt(nx^2 + ny^2) <= n_max_prl
+
+    Amplitudes inside the band are shaped by
+    `n_perp^(-alpha_force) * n_prl^(-alpha_prl_force)`, so the perpendicular
+    and parallel spectral slopes can be set independently.
     """
 
     metadata = None
@@ -260,6 +272,7 @@ def shaped_random_real_field_perp_prl(
             n_max_perp_force=n_max_perp_force,
             n_max_prl_force=n_max_prl_force,
             alpha_force=alpha_force,
+            alpha_prl_force=alpha_prl_force,
             workspace=workspace,
         )
         if band_mask is None:

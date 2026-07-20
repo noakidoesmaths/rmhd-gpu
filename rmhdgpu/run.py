@@ -18,7 +18,10 @@ from rmhdgpu.auto_dissipation import (
     disabled_auto_dissipation_diagnostics,
 )
 from rmhdgpu.backend import build_backend
-from rmhdgpu.diagnostics.spectra import perpendicular_energy_spectrum_from_state
+from rmhdgpu.diagnostics.spectra import (
+    parallel_energy_spectrum_from_state,
+    perpendicular_energy_spectrum_from_state,
+)
 from rmhdgpu.diagnostics.scalar import compute_scalar_diagnostics
 from rmhdgpu.errors import NonFiniteStateError
 from rmhdgpu.equations import available_equation_sets, get_equation_module
@@ -31,6 +34,7 @@ from rmhdgpu.output import (
     FULLFIELD_DIAGNOSTICS_DIRNAME,
     SCALAR_DIAGNOSTICS_FILENAME,
     SPECTRA_DIAGNOSTICS_FILENAME,
+    SPECTRA_PRL_DIAGNOSTICS_FILENAME,
     FullFieldHDF5Writer,
     ScalarDiagnosticsWriter,
     SpectraDiagnosticsWriter,
@@ -359,11 +363,17 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
 
         scalar_csv_path = output_dir / SCALAR_DIAGNOSTICS_FILENAME
         spectra_csv_path = output_dir / SPECTRA_DIAGNOSTICS_FILENAME
+        spectra_prl_csv_path = output_dir / SPECTRA_PRL_DIAGNOSTICS_FILENAME
         fullfield_output_dir = output_dir / FULLFIELD_DIAGNOSTICS_DIRNAME
 
         scalar_writer = ScalarDiagnosticsWriter(scalar_csv_path) if output_cadence_enabled(config.t_out_scal) else None
         spectra_writer = (
             SpectraDiagnosticsWriter(spectra_csv_path) if output_cadence_enabled(config.t_out_spec) else None
+        )
+        spectra_prl_writer = (
+            SpectraDiagnosticsWriter(spectra_prl_csv_path, k_column="kprl")
+            if output_cadence_enabled(config.t_out_spec)
+            else None
         )
         fullfield_writer = None
         if output_cadence_enabled(config.t_out_full):
@@ -484,6 +494,14 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     params=config,
                 )
                 spectra_writer.write_spectra(time=t, step=steps, spectra=spectra)
+                spectra_prl = parallel_energy_spectrum_from_state(
+                    state,
+                    grid,
+                    backend,
+                    equation_module=equation_module,
+                    params=config,
+                )
+                spectra_prl_writer.write_spectra(time=t, step=steps, spectra=spectra_prl)
                 logger.event(
                     "spectra diagnostics",
                     {
@@ -491,6 +509,7 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                         "step": steps,
                         "quantities": [key for key in spectra if key != "kperp"],
                         "shell_count": int(len(spectra["kperp"])),
+                        "prl_shell_count": int(len(spectra_prl["kprl"])),
                     },
                 )
                 next_spectra_output = advance_output_time(
@@ -617,6 +636,8 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                 scalar_writer.close()
             if spectra_writer is not None:
                 spectra_writer.close()
+            if spectra_prl_writer is not None:
+                spectra_prl_writer.close()
             if fullfield_writer is not None:
                 fullfield_writer.close()
 

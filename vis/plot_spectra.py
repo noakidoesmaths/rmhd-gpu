@@ -15,12 +15,16 @@ import numpy as np
 from vis._matplotlib import finalize_figure, import_pyplot
 
 
-def _read_spectra_csv(path: Path) -> dict[str, dict[float, tuple[np.ndarray, np.ndarray]]]:
+def _read_spectra_csv(
+    path: Path, k_column: str = "kperp"
+) -> dict[str, dict[float, tuple[np.ndarray, np.ndarray]]]:
     grouped: dict[str, dict[float, list[tuple[float, float]]]] = {}
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
             raise ValueError(f"Spectra file {path} has no header row.")
+        if k_column not in reader.fieldnames:
+            raise ValueError(f"Spectra file {path} has no '{k_column}' column.")
         rows = list(reader)
 
     if not rows:
@@ -30,7 +34,7 @@ def _read_spectra_csv(path: Path) -> dict[str, dict[float, tuple[np.ndarray, np.
         quantity = row["quantity"]
         time_value = float(row["time"])
         grouped.setdefault(quantity, {}).setdefault(time_value, []).append(
-            (float(row["kperp"]), float(row["value"]))
+            (float(row[k_column]), float(row["value"]))
         )
 
     result: dict[str, dict[float, tuple[np.ndarray, np.ndarray]]] = {}
