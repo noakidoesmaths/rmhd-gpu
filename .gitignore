@@ -3,7 +3,18 @@
 sanity_plots/*
 quick_tests/*
 *.pyc
+__pycache__/
+*.egg-info/
 .codex
+
+# Ignore SLURM / GPU job logs
+*.out
+slurm-*.out
+dcgm-*.out
+*.slurm
+
+# Ignore nano/editor backups
+*.save
 # Ignore simulation outputs
 examples/outputs_*/
 examples/nokias_inhomo_rho.input
