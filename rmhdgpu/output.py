@@ -195,6 +195,7 @@ class FullFieldHDF5Writer:
         fft: Any,
         backend: Any,
         field_names: list[str] | None = None,
+        extra_fields: Any | None = None,
     ) -> int:
         output_index = self._next_index
         snapshot_path = self.snapshot_path(output_index)
@@ -203,6 +204,7 @@ class FullFieldHDF5Writer:
             fft,
             backend,
             field_names=state.field_names if field_names is None else field_names,
+            extra_fields=extra_fields,
         )
 
         with self._h5py.File(snapshot_path, "w") as handle:

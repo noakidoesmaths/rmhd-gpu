@@ -52,7 +52,7 @@ from rmhdgpu.runfile import (
     write_resolved_config,
 )
 from rmhdgpu.state import State
-from rmhdgpu.steppers import compute_cfl_timestep, if_ssprk3_step
+from rmhdgpu.steppers import compute_cfl_timestep, if_ssprk3_step, project_out_kpar0
 import rmhdgpu.operators as operators
 from rmhdgpu.utils import check_state_finite
 from rmhdgpu.workspace import Workspace
@@ -440,6 +440,8 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     for quantity_name, rhs_terms in budget_interval_terms.items()
                 }
             averaged.setdefault("total_energy", {}).setdefault("forcing", 0.0)
+            if project_kpar0:
+                averaged.setdefault("total_energy", {}).setdefault("projection", 0.0)
             return averaged
 
         def _reset_budget_interval() -> None:
@@ -523,6 +525,10 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                 next_output_time=next_fullfield_output,
                 tmax=config.tmax,
             ):
+                derived_fn = getattr(equation_module, "derived_output_fields", None)
+                extra_fields = (
+                    derived_fn(state, grid, fft, backend) if derived_fn is not None else None
+                )
                 output_index = fullfield_writer.write_state(
                     state,
                     time=t,
@@ -530,6 +536,7 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     fft=fft,
                     backend=backend,
                     field_names=config.field_names,
+                    extra_fields=extra_fields,
                 )
                 logger.event(
                     "full-field diagnostics",
@@ -546,9 +553,19 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     current_time=t,
                 )
 
+        project_kpar0 = bool(getattr(config, "project_kpar0", False))
+
         try:
             if config.fail_on_nonfinite:
                 check_state_finite(state, backend, time=t, step=steps, context="run startup")
+
+            # One-time init cleanup of the marginal k_par = 0 plane, analogous to
+            # exclude_kpar0. With exclude_kpar0=true this removes ~0 (the plane is
+            # already empty); it runs before any budget interval starts, so it is
+            # intentionally not booked as a budget term. If project_kpar0=true is
+            # used with exclude_kpar0=false, this startup removal is unaccounted.
+            if project_kpar0:
+                project_out_kpar0(state, grid)
 
             _write_due_diagnostics(dt_value=0.0)
 
@@ -600,6 +617,24 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                         )
                 else:
                     state = stepped_state
+
+                # Re-project the k_par = 0 plane the nonlinear brackets repopulate
+                # each step, and book the removed energy as a `projection` sink so
+                # the total-energy budget stays closed (same accounting path as
+                # forcing above).
+                if project_kpar0:
+                    projection_energy_before = (
+                        equation_module.total_energy(state, grid, backend, config)
+                        if track_budget else 0.0
+                    )
+                    project_out_kpar0(state, grid)
+                    if track_budget:
+                        _accumulate_budget_kick(
+                            "total_energy",
+                            "projection",
+                            equation_module.total_energy(state, grid, backend, config)
+                            - projection_energy_before,
+                        )
 
                 if track_budget:
                     budget_interval_duration += dt
