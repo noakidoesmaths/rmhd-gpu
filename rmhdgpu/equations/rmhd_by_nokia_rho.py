@@ -50,7 +50,7 @@ import numpy as np
 from rmhdgpu.diagnostics.budget import flatten_conserved_quantity_budgets
 from rmhdgpu.diagnostics.scalar import STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO
 from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
-from rmhdgpu.operators import dy, dz, inv_lap_perp, lap_perp, poisson_bracket
+from rmhdgpu.operators import dx, dy, dz, inv_lap_perp, lap_perp, poisson_bracket
 from rmhdgpu.diagnostics.spectra import parallel_shell_spectrum, perpendicular_shell_spectrum
 from rmhdgpu.state import State
 
@@ -158,7 +158,33 @@ def derive_s_hat(drho_hat: Any, dbpar_hat: Any, params: Any) -> Any:
     """Derives drho using s and db_par."""
 
     p = derived_parameters(params)
-    return - dbpar_hat * p.gamma / p.chi  - p.gamma * drho_hat 
+    return - dbpar_hat * p.gamma / p.chi  - p.gamma * drho_hat
+
+
+def derived_output_fields(state: State, grid: Any, fft: Any, backend: Any) -> dict[str, Any]:
+    """Return extra real-space fields to store in full-field snapshots.
+
+    `z_plus = |z^+|` and `z_minus = |z^-|` are the Elsasser field magnitudes,
+    where `z^± = b_hat x grad_perp(phi ± psi)` so
+
+        `|z^±| = |grad_perp(phi ± psi)| = sqrt((d_x f)^2 + (d_y f)^2)`
+
+    with `f = phi ± psi` and `phi = inv_lap_perp(omega)`. The magnitude is a
+    pointwise nonlinear quantity, so it is formed in real space rather than
+    stored as a single Fourier field. This matches the Elsasser convention used
+    by `_energy_modal_densities` (where the `z_plus`/`z_minus` energies carry the
+    same `kperp2 |phi ± psi|^2 = |grad_perp(phi ± psi)|^2` weighting).
+    """
+
+    xp = backend.xp
+    phi_hat = derive_phi_hat(state["omega"], grid)
+    psi_hat = state["psi"]
+    fields: dict[str, Any] = {}
+    for name, f_hat in (("z_plus", phi_hat + psi_hat), ("z_minus", phi_hat - psi_hat)):
+        dxf = fft.c2r(dx(f_hat, grid))
+        dyf = fft.c2r(dy(f_hat, grid))
+        fields[name] = backend.to_numpy(xp.sqrt(dxf ** 2 + dyf ** 2))
+    return fields
 
 
 def characteristic_speeds(params: Any) -> list[float]:
