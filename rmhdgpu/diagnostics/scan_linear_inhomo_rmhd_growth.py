@@ -82,7 +82,7 @@ def run_scan(label: str, input_file: Path, runs_subdir: str) -> dict:
     K_b0 = g / vA**2 - (chi * K_p0) / GAMMA
     # Effective Brunt-Vaisala frequency squared, matching the equation modules'
     # derived_parameters.N_sq (verified against the linearized ideal_rhs).
-    N_sq = - g * (vS2 / cs2 * (K_b0 + chi * K_p0 / GAMMA) - K_rho0)
+    N_sq = g * K_rho0 - g**2 / (vA**2 * (1.0 + chi))
 
     base_k_indices = list(initial_parameters.get("k_indices", [0, 1, 0]))
     if len(base_k_indices) != 3:

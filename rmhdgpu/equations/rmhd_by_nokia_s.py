@@ -45,6 +45,7 @@ from typing import Any
 
 import numpy as np
 
+from rmhdgpu.diagnostics import compressive_channels as channels
 from rmhdgpu.diagnostics.budget import flatten_conserved_quantity_budgets
 from rmhdgpu.diagnostics.scalar import STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO
 from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
@@ -63,6 +64,7 @@ DIAGNOSTIC_GAMMA = 5.0 / 3.0
 # entries are S09-specific energy partitions useful for quick run inspection.
 SCALAR_DIAGNOSTIC_INFO = {
     **STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO,
+    **channels.CHANNEL_SCALAR_DIAGNOSTIC_INFO,
     "alfvenic_energy": "Alfvenic part of the S09 energy: 0.5 <|grad phi|^2 + |grad psi|^2>.",
     "dupar_energy": "Unweighted kinetic parallel energy proxy: 0.5 <dupar^2>.",
     "dbpar_energy": "Unweighted magnetic-compressive energy proxy: 0.5 <dbpar^2>.",
@@ -118,7 +120,14 @@ def derived_parameters(params: Any) -> inhomo_rmhd_parameters:
     cs2 = chi * vA**2
     vS2 = alpha * vA**2
     
-    N_sq = - g * (vS2/cs2 *(K_b0 + chi * K_p0/gamma) - K_rho0)
+    # Brunt-Vaisala frequency squared, written directly in terms of K_rho0.
+    # `K_b0 + chi*K_p0/gamma` is identically `g/vA^2` by the definition of K_b0
+    # above, and `vS2/cs2` is `1/(1+chi)`, so the equivalent closed form is
+    #
+    #     N^2 = -g * (g/(vA^2 (1+chi)) - K_rho0) = g*K_rho0 - g^2/(vA^2 (1+chi)).
+    #
+    # Negative N^2 is unstable stratification. K_p0 cancels out entirely.
+    N_sq = g * K_rho0 - g**2 / (vA**2 * (1.0 + chi))
 
     dbpar_energy_weight = vA**2 / alpha
     entropy_energy_weight = cs2/(gamma**2 * (gamma - 1))
@@ -156,28 +165,46 @@ def derive_drho_hat(s_hat: Any, dbpar_hat: Any, params: Any) -> Any:
     """Derives drho using s and db_par."""
 
     p = derived_parameters(params)
-    return - s_hat/p.gamma - dbpar_hat/ p.chi  
+    return - s_hat/p.gamma - dbpar_hat/ p.chi
+
+
+def channel_fields(state: State, grid: Any, params: Any) -> channels.ChannelFields:
+    """Return the fields the DCF/ACR channel diagnostics are built from.
+
+    This set evolves `s`, so `drho` is recovered through `derive_drho_hat`.
+    Writing the channels in `drho` makes them identical to the `rho` equation
+    set's, so both write the same scalar-diagnostic columns.
+    """
+
+    return channels.ChannelFields(
+        phi_hat=derive_phi_hat(state["omega"], grid),
+        psi_hat=state["psi"],
+        du_par_hat=state["du_par"],
+        db_par_hat=state["db_par"],
+        drho_hat=derive_drho_hat(state["s"], state["db_par"], params),
+    )
 
 def derived_output_fields(state: State, grid: Any, fft: Any, backend: Any) -> dict[str, Any]:
     """Return extra real-space fields to store in full-field snapshots.
 
     `z_plus = |z^+|` and `z_minus = |z^-|` are the Elsasser field magnitudes,
-    where `z^± = b_hat x grad_perp(phi ± psi)` so
+    where `z^± = u_perp ∓ b_perp/sqrt(4 pi rho0) = b_hat x grad_perp(phi ∓ psi)`
+    so
 
-        `|z^±| = |grad_perp(phi ± psi)| = sqrt((d_x f)^2 + (d_y f)^2)`
+        `|z^±| = |grad_perp(f)| = sqrt((d_x f)^2 + (d_y f)^2)`
 
-    with `f = phi ± psi` and `phi = inv_lap_perp(omega)`. The magnitude is a
+    with `f = phi ∓ psi` and `phi = inv_lap_perp(omega)`. The magnitude is a
     pointwise nonlinear quantity, so it is formed in real space rather than
     stored as a single Fourier field. This matches the Elsasser convention used
     by `_energy_modal_densities` (where the `z_plus`/`z_minus` energies carry the
-    same `kperp2 |phi ± psi|^2 = |grad_perp(phi ± psi)|^2` weighting).
+    same `kperp2 |phi ∓ psi|^2 = |grad_perp(phi ∓ psi)|^2` weighting).
     """
 
     xp = backend.xp
     phi_hat = derive_phi_hat(state["omega"], grid)
     psi_hat = state["psi"]
     fields: dict[str, Any] = {}
-    for name, f_hat in (("z_plus", phi_hat + psi_hat), ("z_minus", phi_hat - psi_hat)):
+    for name, f_hat in (("z_plus", phi_hat - psi_hat), ("z_minus", phi_hat + psi_hat)):
         dxf = fft.c2r(dx(f_hat, grid))
         dyf = fft.c2r(dy(f_hat, grid))
         fields[name] = backend.to_numpy(xp.sqrt(dxf ** 2 + dyf ** 2))
@@ -411,17 +438,19 @@ def _energy_modal_densities(
     phi_hat = derive_phi_hat(state["omega"], grid)
     kperp2 = grid.kperp2
 
-    # Elsasser fields z± = u_perp ± b_perp/sqrt(4 pi rho0) = z_hat x grad_perp(phi ± psi).
+    # Elsasser fields z± = u_perp ∓ b_perp/sqrt(4 pi rho0) = z_hat x grad_perp(phi ∓ psi).
     # The 1/4 weight is the standard pseudo-energy normalization, so that
-    # z_plus + z_minus = u_perp + b_perp shell by shell.
+    # z_plus + z_minus = u_perp + b_perp shell by shell. `phi - psi` is the
+    # branch obeying `d_t f + vA d_z f = 0`, so it is the one propagating along
+    # `+b_hat`; this matches `derived_output_fields` and the `rho` equation set.
     return {
         "u_perp": 0.5 * kperp2 * (xp.abs(phi_hat) ** 2),
         "b_perp": 0.5 * kperp2 * (xp.abs(state["psi"]) ** 2),
         "du_par": 0.5 * (xp.abs(state["du_par"]) ** 2),
         "db_par": 0.5 * p.dbpar_energy_weight * (xp.abs(state["db_par"]) ** 2),
         "s": 0.5 * p.entropy_energy_weight * (xp.abs(state["s"]) ** 2),
-        "z_plus": 0.25 * kperp2 * (xp.abs(phi_hat + state["psi"]) ** 2),
-        "z_minus": 0.25 * kperp2 * (xp.abs(phi_hat - state["psi"]) ** 2),
+        "z_plus": 0.25 * kperp2 * (xp.abs(phi_hat - state["psi"]) ** 2),
+        "z_minus": 0.25 * kperp2 * (xp.abs(phi_hat + state["psi"]) ** 2),
     }
 
 
@@ -580,9 +609,13 @@ def compute_conserved_quantity_budgets(
 ) -> dict[str, dict[str, Any]]:
     """Return conserved-quantity values plus named signed RHS contributions."""
 
-    rhs_terms: dict[str, float] = {
-        "stratification": total_energy_stratification_rhs(state, grid, backend, params)
-    }
+    p = derived_parameters(params)
+    fields = channel_fields(state, grid, params)
+    correlators = channels.gradient_correlators(fields, grid, backend)
+
+    # The three ACR channels replace the single `stratification` term: they sum
+    # to it exactly, so `total_energy_rhs_total` is unchanged.
+    rhs_terms: dict[str, float] = dict(channels.stratification_channels(correlators, p))
     if linear_ops is not None:
         rhs_terms["dissipation"] = total_energy_dissipation_rhs(
             state,
@@ -599,11 +632,42 @@ def compute_conserved_quantity_budgets(
             }
         )
 
-    return {
+    budgets: dict[str, dict[str, Any]] = {
         "total_energy": {
             "value": total_energy(state, grid, backend, params),
             "rhs_terms": rhs_terms,
         }
+    }
+    budgets.update(channels.elsasser_budgets(fields, grid, backend, p, linear_ops=linear_ops))
+    if extra_rhs_terms is not None:
+        for quantity_name in ("w_plus", "w_minus"):
+            budgets[quantity_name]["rhs_terms"].update(
+                {
+                    name: float(value)
+                    for name, value in extra_rhs_terms.get(quantity_name, {}).items()
+                }
+            )
+    return budgets
+
+
+def conserved_quantity_values(
+    state: State,
+    *,
+    grid: Any,
+    backend: Any,
+    params: Any,
+) -> dict[str, float]:
+    """Return the current value of each tracked conserved quantity.
+
+    The run driver uses this to book forcing and projection kicks against every
+    conserved quantity, not just `total_energy`.
+    """
+
+    fields = channel_fields(state, grid, params)
+    return {
+        "total_energy": total_energy(state, grid, backend, params),
+        "w_plus": channels.elsasser_energy(fields, grid, backend, sign=1),
+        "w_minus": channels.elsasser_energy(fields, grid, backend, sign=-1),
     }
 
 
@@ -636,6 +700,14 @@ def compute_equation_scalar_diagnostics(
         "db_par_energy": db_par,
         "total_energy_proxy": alfvenic + du_par + db_par,
     }
+    diagnostics.update(
+        channels.channel_scalar_diagnostics(
+            channel_fields(state, grid, params),
+            grid,
+            backend,
+            derived_parameters(params),
+        )
+    )
 
     budgets = compute_conserved_quantity_budgets(
         state,
@@ -645,11 +717,14 @@ def compute_equation_scalar_diagnostics(
         linear_ops=linear_ops,
         extra_rhs_terms=extra_rhs_terms,
     )
-    rhs_terms = budgets["total_energy"].setdefault("rhs_terms", {})
-    if budget_rhs_terms is not None and "total_energy" in budget_rhs_terms:
-        rhs_terms.clear()
-        rhs_terms.update({name: float(value) for name, value in budget_rhs_terms["total_energy"].items()})
-    rhs_terms.setdefault("dissipation", 0.0)
-    rhs_terms.setdefault("forcing", 0.0)
+    for quantity_name, payload in budgets.items():
+        rhs_terms = payload.setdefault("rhs_terms", {})
+        if budget_rhs_terms is not None and quantity_name in budget_rhs_terms:
+            rhs_terms.clear()
+            rhs_terms.update(
+                {name: float(value) for name, value in budget_rhs_terms[quantity_name].items()}
+            )
+        rhs_terms.setdefault("dissipation", 0.0)
+        rhs_terms.setdefault("forcing", 0.0)
     diagnostics.update(flatten_conserved_quantity_budgets(budgets))
     return diagnostics

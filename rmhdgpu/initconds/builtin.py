@@ -678,7 +678,7 @@ def random_spectrum(
 @register_initial_condition(
     "random_spectrum_one_wave",
     normalize_parameters=_normalize_random_spectrum_one_wave_parameters,
-    description="Band-limited random pure z^+ Alfvenic state (Phi = Psi), compressive fields zero.",
+    description="Band-limited random pure z^+ Alfvenic state (Phi = -Psi), compressive fields zero.",
 )
 def random_spectrum_one_wave(
     *,
@@ -694,9 +694,9 @@ def random_spectrum_one_wave(
 
     We send one alfven wave, so we set an initial condition of z+, and rest
     of the evolution fields to be 0. Hence we set the initial condition 
-    of Phi to some random number then set Psi = Phi, and rest of the variables to 0. 
+    of Psi to some random number then set Phi = -Psi, and rest of the variables to 0. 
     
-    The variable Phi gets an independent random real field whose support is
+    The variable Psi gets an independent random real field whose support is
     limited to the shell band `n_min_prl <= n_z <= n_max_prl`, 'n_min_perp <=
     sqrt(nx^2 + ny^2) <= n_max_perp, where `n` is the integer
     mode-number magnitude.  The Fourier amplitudes are shaped so the modal
@@ -704,6 +704,15 @@ def random_spectrum_one_wave(
     `n_perp^(-alpha) * n_prl^(-alpha_prl)`. The complete state is
     then rescaled so the equation-module `total_energy(...)` equals
     `init_energy`.
+
+    Convention: `z^± = u_perp ∓ b_perp/sqrt(4 pi rho0)`, so the potential of
+    `z^±` is `phi ∓ psi`. Setting `omega = -lap_perp(psi)` gives `phi = -psi`,
+    which kills `z^-` exactly and leaves a pure `z^+` state; the diagnostics
+    therefore report all of this energy in `w_plus` / `z_plus` / `q_dcf` and
+    none in `w_minus` / `z_minus`. Note `psi -> -psi` is not a symmetry of the
+    stratified equations (the background-gradient terms `-vA K_b0 dy(psi)` and
+    `vA {psi, db_par}` in `(du_par)_t` are linear in `psi`), so this is a
+    physically different run from the `phi = +psi` version, not a relabeling.
     """
 
     state = State(grid, backend, field_names=list(field_names))
@@ -725,7 +734,7 @@ def random_spectrum_one_wave(
         )
     state["psi"][...] = psi_hat
 
-    state["omega"][...] = lap_perp(psi_hat, grid)
+    state["omega"][...] = -lap_perp(psi_hat, grid)
 
     if dealias_mask is not None:
         state.apply_mask(dealias_mask)

@@ -425,6 +425,38 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
             terms = budget_interval_terms.setdefault(quantity_name, {})
             terms[term_name] = terms.get(term_name, 0.0) + value
 
+        def _conserved_quantity_values(sample_state: State) -> dict[str, float]:
+            """Return the current value of every conserved quantity the module tracks.
+
+            Equation modules that track more than `total_energy` expose
+            `conserved_quantity_values`; older ones fall back to the total
+            energy alone.
+            """
+
+            values_fn = getattr(equation_module, "conserved_quantity_values", None)
+            if values_fn is None:
+                return {"total_energy": equation_module.total_energy(sample_state, grid, backend, config)}
+            return values_fn(sample_state, grid=grid, backend=backend, params=config)
+
+        def _accumulate_kicks(
+            term_name: str,
+            before: dict[str, float],
+            after: dict[str, float],
+        ) -> None:
+            """Book an instantaneous change against every conserved quantity.
+
+            Forcing and `k_par = 0` projection change the state outside the RHS,
+            so their contribution is measured as a before/after difference
+            rather than integrated from a rate.
+            """
+
+            for quantity_name, after_value in after.items():
+                _accumulate_budget_kick(
+                    quantity_name,
+                    term_name,
+                    after_value - before.get(quantity_name, 0.0),
+                )
+
         def _averaged_budget_terms() -> dict[str, dict[str, float]]:
             if budget_interval_duration <= 0.0:
                 averaged = {
@@ -439,9 +471,11 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     }
                     for quantity_name, rhs_terms in budget_interval_terms.items()
                 }
-            averaged.setdefault("total_energy", {}).setdefault("forcing", 0.0)
-            if project_kpar0:
-                averaged.setdefault("total_energy", {}).setdefault("projection", 0.0)
+            averaged.setdefault("total_energy", {})
+            for rhs_terms in averaged.values():
+                rhs_terms.setdefault("forcing", 0.0)
+                if project_kpar0:
+                    rhs_terms.setdefault("projection", 0.0)
             return averaged
 
         def _reset_budget_interval() -> None:
@@ -594,8 +628,8 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     _accumulate_budget_terms(budget_before, budget_after, dt)
 
                 if config.use_forcing:
-                    forcing_energy_before = (
-                        equation_module.total_energy(stepped_state, grid, backend, config) if track_budget else 0.0
+                    forcing_values_before = (
+                        _conserved_quantity_values(stepped_state) if track_budget else {}
                     )
                     forcing_kick = generate_forcing_kick(
                         stepped_state,
@@ -610,10 +644,10 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     )
                     state = apply_forcing_kick(stepped_state, forcing_kick, inplace=True)
                     if track_budget:
-                        _accumulate_budget_kick(
-                            "total_energy",
+                        _accumulate_kicks(
                             "forcing",
-                            equation_module.total_energy(state, grid, backend, config) - forcing_energy_before,
+                            forcing_values_before,
+                            _conserved_quantity_values(state),
                         )
                 else:
                     state = stepped_state
@@ -623,17 +657,15 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                 # the total-energy budget stays closed (same accounting path as
                 # forcing above).
                 if project_kpar0:
-                    projection_energy_before = (
-                        equation_module.total_energy(state, grid, backend, config)
-                        if track_budget else 0.0
+                    projection_values_before = (
+                        _conserved_quantity_values(state) if track_budget else {}
                     )
                     project_out_kpar0(state, grid)
                     if track_budget:
-                        _accumulate_budget_kick(
-                            "total_energy",
+                        _accumulate_kicks(
                             "projection",
-                            equation_module.total_energy(state, grid, backend, config)
-                            - projection_energy_before,
+                            projection_values_before,
+                            _conserved_quantity_values(state),
                         )
 
                 if track_budget:

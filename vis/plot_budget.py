@@ -15,6 +15,15 @@ The bottom panel also shows the closure residual
 
 which should remain near zero when the saved budget terms explain the measured
 evolution well.
+
+The inhomogeneous equation sets split their background-gradient source into the
+three ACR channels `acr_B`, `acr_g` and `acr_th`, which sum exactly to the
+single `stratification` source (see
+`test_acr_channels_sum_to_stratification_source`). By default those three are
+plotted as one `stratification` curve, so the budget reads as
+`dissipation + forcing + stratification`; pass `--split-acr` to show the three
+channels separately instead. Either way the residual is formed from every saved
+term, so it is unaffected.
 """
 
 from __future__ import annotations
@@ -67,9 +76,43 @@ def _sum_rhs_terms(columns: dict[str, np.ndarray], rhs_term_names: list[str], *,
     return np.sum([columns[name] for name in rhs_term_names], axis=0, dtype=np.float64)
 
 
+def _grouped_rhs_terms(
+    columns: dict[str, np.ndarray],
+    quantity: str,
+    rhs_term_names: list[str],
+    *,
+    split_acr: bool,
+) -> list[tuple[str, np.ndarray]]:
+    """Return `(label, series)` pairs to draw, collapsing the ACR split by default.
+
+    The `acr_*` channels sum exactly to the modules' single `stratification`
+    source, so their sum reproduces the pre-split `*_rhs_stratification` curve.
+    Equation sets that still write `stratification` directly are untouched,
+    since they have no `acr_*` columns to group.
+    """
+
+    prefix = f"{quantity}_rhs_"
+    acr_names = [name for name in rhs_term_names if name.startswith(f"{prefix}acr_")]
+    if split_acr or not acr_names:
+        return [(name, columns[name]) for name in rhs_term_names]
+
+    grouped = [(name, columns[name]) for name in rhs_term_names if name not in acr_names]
+    stratification = np.sum([columns[name] for name in acr_names], axis=0, dtype=np.float64)
+    grouped.append((f"{prefix}stratification", stratification))
+    return grouped
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv_path", help="Path to scalar_diagnostics.csv.")
+    parser.add_argument(
+        "--split-acr",
+        action="store_true",
+        help=(
+            "Plot the `acr_B`, `acr_g` and `acr_th` channels separately instead of summing "
+            "them into a single `stratification` curve."
+        ),
+    )
     parser.add_argument(
         "--quantity",
         default="total_energy",
@@ -103,6 +146,13 @@ def main(argv: list[str] | None = None) -> Path:
         name
         for name in fieldnames
         if name.startswith(f"{args.quantity}_rhs_") and name != rhs_total_name
+    )
+
+    plotted_terms = _grouped_rhs_terms(
+        columns,
+        args.quantity,
+        rhs_term_names,
+        split_acr=args.split_acr,
     )
 
     measured = _backward_difference(time, columns[args.quantity])
@@ -140,13 +190,13 @@ def main(argv: list[str] | None = None) -> Path:
         label=f"saved {rhs_total_name}",
     )
     term_linestyles = ["--", ":", "-."]
-    for index, term_name in enumerate(rhs_term_names):
+    for index, (term_label, term_series) in enumerate(plotted_terms):
         axes[1].plot(
             time,
-            columns[term_name],
+            term_series,
             lw=1.8,
             ls=term_linestyles[index % len(term_linestyles)],
-            label=term_name,
+            label=term_label,
         )
     axes[1].plot(
         time,
