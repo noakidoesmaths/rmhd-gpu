@@ -1,67 +1,29 @@
-"""Compare measured direct-compressive-feedback heating against the closure.
+"""Compare measured direct-compressive-feedback heating with the slaved closure.
 
-Reads only `scalar_diagnostics.csv`, which carries both sides of the comparison
-for either inhomogeneous equation set (`inhomogeneous_rmhd_rho` and
-`inhomogeneous_rmhd_s` write identical channel columns).
+Reads scalar_diagnostics.csv from either inhomogeneous RMHD equation set.
+For a straight field with no mean flow, Squire et al. (arXiv:2607.08036,
+Eqs. 18, 70-71) gives:
 
-Measured (exact; no closure is involved, since these equation sets are the
-straight-field, no-mean-flow case of Squire et al. arXiv:2607.08036 Eq. 18):
+    measured:   Q = q_dcf (plus branch) or q_ccr_source (minus branch)
+    predicted:  Q = W * N_sq / omega_nl,   omega_nl = 2*sqrt(W)*<k_perp>
 
-    Q_meas = q_dcf = -(d_t W+)|_buoyancy
+Positive measured Q means buoyancy removes energy from the pump wave.
+--chi-a replaces the measured turbulence strength with a fixed value:
+Q = W*N_sq / (chi_A*vA*<k_parallel>). The measured-chi prediction is then
+shown for comparison. --l-perp adds a separate fixed-outer-scale estimate.
+The mean measured/predicted ratio is a fitted prefactor, not a pass/fail test.
 
-Predicted (their Eq. 70/71, the `rho` channel; the `u` and `B` channels are
-both proportional to field-line curvature and so vanish here):
-
-    Q_pred = W+ vA K^damp_DCF,rho,     K^damp_DCF,rho = -chi_A^-1 l_par F_rho.g/vA^2
-
-Using `N^2 = -g F_rho` (exactly the modules' `N_sq`) and
-`chi_A = z+ l_par / (vA l_perp)`, the parallel scale and turbulence-strength
-parameter cancel identically:
-
-    Q_pred = W+ N^2 / omega_nl = 0.5 N^2 l_perp sqrt(W+)
-
-so only `W+`, `l_perp` and the run constant `N^2` are needed.
-
-Note what this cancellation means in practice. `g` and `F_rho` only ever enter
-through the product `-g F_rho = N^2`, which is already a CSV column, so there
-is nothing to gain from supplying them separately. And substituting a `chi_A`
-*measured from the run* reproduces this reduced form exactly rather than giving
-an independent check, because `chi_A^-1 l_par = vA l_perp / z` whenever
-`chi_A` is built from the same `<k_perp>`, `<k_par>` and `W` as everything else.
-The only genuinely free knob is therefore an *assumed* `chi_A`: pass
-`--chi-a 1` (critical balance, what the closure posits) to overlay
-
-    Q_explicit = W+ vA * chi_A^-1 l_par N^2 / vA^2 = W+ N^2 l_par / (chi_A vA)
-
-with `l_par = 1 / <k_par>` taken from the run. That curve uses `<k_par>` where
-the reduced form uses `<k_perp>`, and the ratio between the two is exactly the
-measured `chi_A`, which is reported in the title. `l_perp` is the remaining
-definitional choice, so the mean ratio `Q_meas/Q_pred` is reported as a fitted
-O(1) prefactor rather than claimed as agreement. Pass `--l-perp` to overlay a
-prediction using a fixed outer scale (for example the initial-condition band),
-and `--tmin` to exclude the startup transient (the compressive fields begin at
-zero, so the measured rate necessarily starts at zero while the slaved
-prediction does not).
-
-Which branch is the pump? DCF is the buoyancy work on the *dominant* Elsasser
-field, and nothing distinguishes `z+` from `z-` except the sign of the guide
-field, so `--branch` selects it (default: whichever carries more energy). With
-the solver convention `z^± = u_perp -+ b_perp/sqrt(4 pi rho0)` the potential of
-`z^±` is `phi -+ psi`, and `random_spectrum_one_wave` sets
-`omega = -lap_perp(psi)`, hence `phi = -psi` and `z- = 0`: those runs are
-perfectly imbalanced into `z+`, so the DCF rate lives in the `q_dcf` / `w_plus`
-columns.
-
-Usage:
-    python vis/plot_dcf.py outputs/scalar_diagnostics.csv
-    python vis/plot_dcf.py outputs/scalar_diagnostics.csv --tmin 4.0 --l-perp 0.5
-    python vis/plot_dcf.py outputs/scalar_diagnostics.csv --branch minus
+Examples (also usable as main([...]) in Spyder):
+    python vis/plot_dcf.py RUN_DIRECTORY/scalar_diagnostics.csv
+    python vis/plot_dcf.py RUN_DIRECTORY/scalar_diagnostics.csv --chi-a 1 --tmin 1
+    python vis/plot_dcf.py RUN_DIRECTORY/scalar_diagnostics.csv --l-perp 0.5 --show
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import dataclass
 from pathlib import Path
 import sys
 
@@ -73,229 +35,171 @@ import numpy as np
 from vis._matplotlib import finalize_figure, import_pyplot
 
 
-REQUIRED_COLUMNS = ("w_plus", "w_minus", "w_plus_kperp", "q_dcf", "N_sq")
-
-# Per-branch column names. `q_dcf` is the buoyancy work on `W+` and
-# `q_ccr_source` the work on `W-`; whichever branch is the pump supplies DCF.
-BRANCH_COLUMNS = {
-    "plus": {
-        "energy": "w_plus",
-        "kperp": "w_plus_kperp",
-        "kprl": "w_plus_kprl",
-        "work": "q_dcf",
-        "dissipation": "w_plus_rhs_dissipation",
-        "label": "z^+",
-    },
-    "minus": {
-        "energy": "w_minus",
-        "kperp": "w_minus_kperp",
-        "kprl": "w_minus_kprl",
-        "work": "q_ccr_source",
-        "dissipation": "w_minus_rhs_dissipation",
-        "label": "z^-",
-    },
-}
+# Instantaneous negative buoyancy work on the selected Elsasser branch.
+WORK_COLUMNS = {"plus": "q_dcf", "minus": "q_ccr_source"}
 
 
-def _select_branch(choice: str, columns: dict[str, np.ndarray]) -> str:
-    """Return the pump branch, defaulting to whichever carries more energy."""
+@dataclass
+class RunSeries:
+    """Heating curves and their summary, ready to plot."""
 
-    if choice != "auto":
-        return choice
-    return "plus" if np.mean(columns["w_plus"]) >= np.mean(columns["w_minus"]) else "minus"
+    times: np.ndarray
+    q_measured: np.ndarray
+    q_predicted: np.ndarray
+    q_reference: np.ndarray | None
+    q_fixed_scale: np.ndarray | None
+    branch: str
+    n_sq: float
+    mean_prefactor: float
+    mean_chi_a: float
+    chi_a: float | None
+    l_perp: float | None
+    tmin: float | None
 
 
-def _read_scalar_csv(path: Path) -> tuple[list[str], dict[str, np.ndarray]]:
+def read_scalar_csv(path):
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
-            raise ValueError(f"Scalar diagnostics file {path} has no header row.")
+            raise SystemExit(f"{path} has no header row.")
         rows = list(reader)
-
     if not rows:
-        raise ValueError(f"Scalar diagnostics file {path} contains no data rows.")
-
-    columns: dict[str, list[float]] = {name: [] for name in reader.fieldnames}
-    for row in rows:
-        for name in reader.fieldnames:
-            columns[name].append(float(row[name]))
-    return list(reader.fieldnames), {
-        name: np.asarray(values, dtype=np.float64) for name, values in columns.items()
-    }
+        raise SystemExit(f"{path} contains no data rows.")
+    return {name: np.array([float(row[name]) for row in rows]) for name in reader.fieldnames}
 
 
-def _safe_ratio(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
-    ratio = np.full_like(numerator, np.nan, dtype=np.float64)
-    usable = np.abs(denominator) > 0.0
-    ratio[usable] = numerator[usable] / denominator[usable]
-    return ratio
+def safe_ratio(numerator, denominator):
+    """Leave undefined ratios as NaN so they are omitted from curves and means."""
+    return np.divide(numerator, denominator, out=np.full_like(numerator, np.nan, dtype=float),
+                     where=np.abs(denominator) > 0.0)
 
 
-def build_parser() -> argparse.ArgumentParser:
+def calculate_series(columns, branch="auto", chi_a=None, l_perp=None, tmin=None):
+    """Select the pump, calculate the heating estimates, and average their ratio."""
+    time_key = "time" if "time" in columns else "t"
+    required = [time_key, "N_sq"]
+    required += ["w_plus", "w_minus"] if branch == "auto" else [f"w_{branch}"]
+    missing = [name for name in required if name not in columns]
+    if missing:
+        raise SystemExit(f"Scalar diagnostics are missing {missing}.")
+    if branch == "auto":
+        # Use the whole run, including times before tmin; ties select plus.
+        branch = "plus" if columns["w_plus"].mean() >= columns["w_minus"].mean() else "minus"
+
+    energy_column = f"w_{branch}"
+    work_column = WORK_COLUMNS[branch]
+    missing = [name for name in (f"{energy_column}_kperp", work_column) if name not in columns]
+    if missing:
+        raise SystemExit(f"The {branch} branch needs these missing columns: {missing}.")
+    times = columns[time_key]
+    energy = columns[energy_column]
+    kperp = columns[f"{energy_column}_kperp"]
+    kparallel = columns.get(f"{energy_column}_kprl")
+    q_measured = columns[work_column]
+    n_sq = float(columns["N_sq"][0])
+    v_a = float(columns["vA"][0]) if "vA" in columns else 1.0
+
+    # W = <|z|^2>/4, so z_rms = 2*sqrt(W) and omega_nl = z_rms/l_perp.
+    omega_nl = 2.0 * np.sqrt(energy) * kperp
+    q_from_measured_chi = safe_ratio(energy * n_sq, omega_nl)
+    chi_measured = None if kparallel is None else safe_ratio(omega_nl, v_a * kparallel)
+
+    if chi_a is not None:
+        if kparallel is None:
+            raise SystemExit(f"--chi-a needs the {energy_column}_kprl column.")
+        if chi_a == 0.0:
+            raise SystemExit("--chi-a must be nonzero.")
+        q_predicted = safe_ratio(energy * n_sq, chi_a * v_a * kparallel)
+    elif kparallel is not None:
+        # Equivalent to W*N_sq/omega_nl for nonzero k_parallel. Keep undefined
+        # points as NaN when the saved parallel scale cannot define chi_A.
+        q_predicted = safe_ratio(energy * n_sq, chi_measured * v_a * kparallel)
+    else:
+        q_predicted = q_from_measured_chi  # Older CSVs have no parallel-wavenumber column.
+
+    q_reference = q_from_measured_chi if chi_a is not None else None
+    q_fixed_scale = None
+    if l_perp is not None:
+        q_fixed_scale = 0.5 * n_sq * l_perp * np.sqrt(np.maximum(energy, 0.0))
+
+    # tmin affects these averages only; all saved times remain in the curves.
+    ratio = safe_ratio(q_measured, q_predicted)
+    usable = np.isfinite(ratio)
+    if tmin is not None:
+        usable &= times >= tmin
+    mean_prefactor = float(ratio[usable].mean()) if usable.any() else np.nan
+    mean_chi_a = np.nan
+    if chi_measured is not None:
+        usable_chi = usable & np.isfinite(chi_measured)
+        if usable_chi.any():
+            mean_chi_a = float(chi_measured[usable_chi].mean())
+
+    return RunSeries(
+        times=times, q_measured=q_measured, q_predicted=q_predicted,
+        q_reference=q_reference, q_fixed_scale=q_fixed_scale, branch=branch, n_sq=n_sq,
+        mean_prefactor=mean_prefactor, mean_chi_a=mean_chi_a,
+        chi_a=chi_a, l_perp=l_perp, tmin=tmin,
+    )
+
+
+def plot_series(run, output_path, show=False):
+    """Draw the measured heating and closure estimates on one set of axes."""
+    plt = import_pyplot(show=show)
+    fig, ax = plt.subplots(figsize=(8.5, 5.0), constrained_layout=True)
+    prediction_label = (r"Closure: measured $\chi_A$" if run.chi_a is None
+                        else rf"Closure: assumed $\chi_A={run.chi_a:g}$")
+
+    ax.plot(run.times, run.q_measured, color="black", lw=2, label="Measured DCF heating")
+    ax.plot(run.times, run.q_predicted, color="tab:red", ls="--", lw=1.8, label=prediction_label)
+    if run.q_reference is not None:
+        ax.plot(run.times, run.q_reference, color="tab:green", ls="--", lw=1.5,
+                label=r"Reference: measured $\chi_A$")
+    if run.q_fixed_scale is not None:
+        ax.plot(run.times, run.q_fixed_scale, color="tab:orange", ls=":", lw=1.5,
+                label=rf"Reference: fixed $\ell_\perp={run.l_perp:g}$")
+    ax.axhline(0.0, color="0.5", lw=1, alpha=0.6)
+    if run.tmin is not None:
+        ax.axvline(run.tmin, color="0.4", lw=1, ls=":")
+
+    pump_label = r"z^+" if run.branch == "plus" else r"z^-"
+    stability = "stable" if run.n_sq > 0 else "unstable" if run.n_sq < 0 else "neutral"
+    title = rf"DCF heating: pump ${pump_label}$, $N^2={run.n_sq:.4g}$ ({stability})"
+    if np.isfinite(run.mean_prefactor):
+        title += f"\nMean measured / closure = {run.mean_prefactor:.3g}"
+        if run.tmin is not None:
+            title += rf" for $t \geq {run.tmin:g}$"
+    if np.isfinite(run.mean_chi_a):
+        title += rf"; measured $\chi_A={run.mean_chi_a:.3g}$"
+    ax.set(xlabel="Time", ylabel="Heating rate", title=title)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=9)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    finalize_figure(fig, output_path=output_path, show=show, plt=plt)
+
+
+def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("csv_path", help="Path to scalar_diagnostics.csv.")
-    parser.add_argument(
-        "--branch",
-        choices=("auto", "plus", "minus"),
-        default="auto",
-        help=(
-            "Which Elsasser field is the pump wave. Default `auto` picks whichever carries more "
-            "energy, which is `plus` for `random_spectrum_one_wave` initial conditions."
-        ),
-    )
-    parser.add_argument(
-        "--l-perp",
-        type=float,
-        default=None,
-        help=(
-            "Fixed outer scale for a second, reference prediction. Useful for showing how much "
-            "the answer depends on the l_perp definition, e.g. the initial-condition band."
-        ),
-    )
-    parser.add_argument(
-        "--chi-a",
-        type=float,
-        default=None,
-        help=(
-            "Overlay the explicit closure form `W N^2 l_par / (chi_A vA)` using this ASSUMED "
-            "turbulence-strength parameter and `l_par = 1/<k_par>` measured from the run. Pass 1 "
-            "for critical balance. A chi_A measured from the run would reproduce the reduced form "
-            "identically, so only an assumed value is informative."
-        ),
-    )
-    parser.add_argument(
-        "--tmin",
-        type=float,
-        default=None,
-        help="Ignore times below this when reporting the mean prefactor. Use it to exclude startup transients.",
-    )
-    parser.add_argument("--output", default=None, help="Output image path. Defaults next to the CSV file.")
-    parser.add_argument("--show", action="store_true", help="Show the figure interactively after saving.")
+    parser.add_argument("csv_path", type=Path, help="Path to scalar_diagnostics.csv.")
+    parser.add_argument("--branch", choices=("auto", "plus", "minus"), default="auto",
+                        help="Pump branch; auto selects the larger mean energy over the whole run.")
+    parser.add_argument("--chi-a", type=float,
+                        help="Assumed turbulence strength (e.g. 1); default uses measured chi_A.")
+    parser.add_argument("--l-perp", type=float, help="Add a reference curve using this fixed outer scale.")
+    parser.add_argument("--tmin", type=float, help="Start time for reported means; all times are plotted.")
+    parser.add_argument("--output", type=Path, help="Image path; default: dcf_measured_vs_predicted.png beside the CSV.")
+    parser.add_argument("--show", action="store_true", help="Show the figure after saving (e.g. in Spyder).")
     return parser
 
 
-def main(argv: list[str] | None = None) -> Path:
+def main(argv=None) -> Path:
     args = build_parser().parse_args(argv)
-    plt = import_pyplot(show=args.show)
-    csv_path = Path(args.csv_path).expanduser().resolve()
-    fieldnames, columns = _read_scalar_csv(csv_path)
-
-    missing = [name for name in REQUIRED_COLUMNS if name not in columns]
-    if missing:
-        raise SystemExit(
-            f"{csv_path} is missing {missing}. These columns are written by the inhomogeneous "
-            "equation sets; re-run with `inhomogeneous_rmhd_rho` or `inhomogeneous_rmhd_s`."
-        )
-
-    time = columns["time" if "time" in columns else "t"]
-    branch = _select_branch(args.branch, columns)
-    names = BRANCH_COLUMNS[branch]
-
-    w_pump = columns[names["energy"]]
-    kperp_mean = columns[names["kperp"]]
-    n_sq = float(columns["N_sq"][0])
-
-    # z = 2 sqrt(W) with rho0 = 1, so omega_nl = z/l_perp = 2 sqrt(W) <k_perp>.
-    z_pump = 2.0 * np.sqrt(np.maximum(w_pump, 0.0))
-    omega_nl = z_pump * kperp_mean
-
-    q_measured = columns[names["work"]]
-    q_predicted = _safe_ratio(w_pump * n_sq, omega_nl)
-
-    # chi_A = z <k_perp> / (vA <k_par>) = omega_nl / omega_A. Measured only so it
-    # can be reported: it is exactly the ratio between the reduced prediction and
-    # the explicit `l_par`-based one, which is why substituting it back in is
-    # circular. `vA` is echoed into every row as a run constant.
-    v_a = float(columns["vA"][0]) if "vA" in columns else 1.0
-    kprl_mean = columns.get(names["kprl"])
-    chi_a_measured = None if kprl_mean is None else _safe_ratio(omega_nl, v_a * kprl_mean)
-
-    q_explicit = None
-    if args.chi_a is not None:
-        if kprl_mean is None:
-            raise SystemExit(
-                f"--chi-a needs the {names['kprl']!r} column, which {csv_path} does not have. "
-                "Re-run the simulation to write the parallel-wavenumber diagnostics."
-            )
-        if args.chi_a == 0.0:
-            raise SystemExit("--chi-a must be nonzero.")
-        # Q = W vA K^damp = W N^2 l_par / (chi_A vA), with l_par = 1/<k_par>.
-        q_explicit = _safe_ratio(w_pump * n_sq, args.chi_a * v_a * kprl_mean)
-
-    prefactor = _safe_ratio(q_measured, q_predicted)
-    window = np.ones_like(time, dtype=bool) if args.tmin is None else time >= args.tmin
-    usable = window & np.isfinite(prefactor)
-    mean_prefactor = float(np.mean(prefactor[usable])) if usable.any() else float("nan")
-
-    output_path = (
-        csv_path.with_name("dcf_measured_vs_predicted.png")
-        if args.output is None
-        else Path(args.output).expanduser().resolve()
-    )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    fig, ax = plt.subplots(1, 1, figsize=(8.5, 5.0), constrained_layout=True)
-
-    ax.plot(time, q_measured, lw=2.0, color="black", label=r"measured $Q_{\rm DCF}$")
-    ax.plot(
-        time,
-        q_predicted,
-        lw=1.8,
-        ls="--",
-        color="tab:red",
-        label=r"predicted $W v_A K^{\rm damp}_{{\rm DCF},\rho} = W N^2/\omega_{\rm nl}$",
-    )
-    if q_explicit is not None:
-        ax.plot(
-            time,
-            q_explicit,
-            lw=1.8,
-            ls="--",
-            color="tab:green",
-            label=(
-                rf"explicit $W N^2 l_\parallel/(\chi_A v_A)$, assumed $\chi_A={args.chi_a:g}$"
-            ),
-        )
-    if args.l_perp is not None:
-        reference = 0.5 * n_sq * args.l_perp * np.sqrt(np.maximum(w_pump, 0.0))
-        ax.plot(
-            time,
-            reference,
-            lw=1.5,
-            ls=":",
-            color="tab:orange",
-            label=rf"predicted, fixed $l_\perp={args.l_perp:g}$",
-        )
-    if names["dissipation"] in columns:
-        ax.plot(
-            time,
-            -columns[names["dissipation"]],
-            lw=1.4,
-            ls="-.",
-            color="tab:blue",
-            label=r"$\epsilon$ (cascade, for scale)",
-        )
-    ax.axhline(0.0, color="0.5", lw=1.0, alpha=0.6)
-    if args.tmin is not None:
-        ax.axvline(args.tmin, color="0.4", lw=1.0, ls=":")
-    ax.set_xlabel("time")
-    ax.set_ylabel(r"heating rate")
-    title = (
-        f"DCF: measured vs slaved closure   (pump ${names['label']}$, "
-        f"$N^2$ = {n_sq:.4g}, {'stable' if n_sq > 0 else 'unstable'} stratification)"
-    )
-    if np.isfinite(mean_prefactor):
-        window = "" if args.tmin is None else rf" over $t \geq {args.tmin:g}$"
-        title += f"\nmean $Q_{{\\rm meas}}/Q_{{\\rm pred}}$ = {mean_prefactor:.3g}{window}"
-    if chi_a_measured is not None:
-        usable_chi = usable & np.isfinite(chi_a_measured)
-        if usable_chi.any():
-            title += rf",  measured $\chi_A$ = {float(np.mean(chi_a_measured[usable_chi])):.3g}"
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=8)
-
-    finalize_figure(fig, output_path=output_path, show=args.show, plt=plt)
+    csv_path = args.csv_path.expanduser().resolve()
+    columns = read_scalar_csv(csv_path)
+    run = calculate_series(columns, branch=args.branch, chi_a=args.chi_a,
+                           l_perp=args.l_perp, tmin=args.tmin)
+    output_path = (csv_path.with_name("dcf_measured_vs_predicted.png") if args.output is None
+                   else args.output.expanduser().resolve())
+    plot_series(run, output_path, args.show)
     return output_path
 
 

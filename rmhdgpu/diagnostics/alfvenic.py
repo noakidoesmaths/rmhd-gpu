@@ -1,11 +1,15 @@
-"""Diagnostics for the ideal Alfvénic RMHD subsystem."""
+"""Alfvenic energy, cross-helicity, and Elsasser-wave diagnostics.
+
+Elsasser helpers use Fourier potentials from any object with phi_hat and
+psi_hat attributes. They do not depend on a particular equation set.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from rmhdgpu.equations.s09 import derive_phi_hat
-from rmhdgpu.operators import dx, dy
+from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
+from rmhdgpu.operators import dx, dy, inv_lap_perp
 
 
 def _perp_gradients(phi_hat: Any, psi_hat: Any, grid: Any, fft: Any) -> dict[str, Any]:
@@ -18,7 +22,7 @@ def _perp_gradients(phi_hat: Any, psi_hat: Any, grid: Any, fft: Any) -> dict[str
 
 
 def _alfvenic_gradients(state: Any, grid: Any, fft: Any) -> dict[str, Any]:
-    phi_hat = derive_phi_hat(state["omega"], grid)
+    phi_hat = inv_lap_perp(state["omega"], grid)
     return _perp_gradients(phi_hat, state["psi"], grid, fft)
 
 
@@ -28,8 +32,8 @@ def _state_and_rhs_gradients(
     grid: Any,
     fft: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    phi_hat = derive_phi_hat(state["omega"], grid)
-    phi_t_hat = derive_phi_hat(rhs_state["omega"], grid)
+    phi_hat = inv_lap_perp(state["omega"], grid)
+    phi_t_hat = inv_lap_perp(rhs_state["omega"], grid)
     gradients = _perp_gradients(phi_hat, state["psi"], grid, fft)
     gradients_t = _perp_gradients(phi_t_hat, rhs_state["psi"], grid, fft)
     return gradients, gradients_t
@@ -127,3 +131,64 @@ def alfvenic_cross_helicity_rhs_budget(
         + gradients["dy_phi"] * gradients_t["dy_psi"]
     )
     return _mean_float(backend, cross_budget)
+
+
+def elsasser_potential(fields: Any, *, sign: int) -> Any:
+    """Return phi - psi for z+ (sign > 0), or phi + psi for z-.
+
+    z^± = zhat cross grad_perp(phi ∓ psi). The plus branch propagates along
+    +b_hat, obeying d_t f + vA d_z f = 0.
+    """
+    return fields.phi_hat - fields.psi_hat if sign > 0 else fields.phi_hat + fields.psi_hat
+
+
+def elsasser_modal_density(fields: Any, grid: Any, backend: Any, *, sign: int) -> Any:
+    """Fourier energy density for W^± = <|z^±|^2>/4."""
+    potential_hat = elsasser_potential(fields, sign=sign)
+    return 0.25 * grid.kperp2 * backend.xp.abs(potential_hat)**2
+
+
+def elsasser_energy(fields: Any, grid: Any, backend: Any, *, sign: int) -> float:
+    """Return W^±; W+ + W- equals the total Alfvenic energy."""
+    return modal_average(elsasser_modal_density(fields, grid, backend, sign=sign), grid, backend)
+
+
+def _elsasser_wavenumber_mean(fields, grid, backend, k_squared, *, sign):
+    """Energy-weighted mean wavenumber, using the solver's real-FFT weights."""
+    density = elsasser_modal_density(fields, grid, backend, sign=sign)
+    energy = modal_average(density, grid, backend)
+    if not energy > 0.0:
+        return 0.0
+    return modal_average(backend.xp.sqrt(k_squared) * density, grid, backend) / energy
+
+
+def elsasser_kperp_mean(fields: Any, grid: Any, backend: Any, *, sign: int) -> float:
+    """Return <k_perp> weighted by W^±; l_perp = 1/<k_perp>."""
+    return _elsasser_wavenumber_mean(fields, grid, backend, grid.kperp2, sign=sign)
+
+
+def elsasser_kprl_mean(fields: Any, grid: Any, backend: Any, *, sign: int) -> float:
+    """Return <|k_parallel|> weighted by W^±.
+
+    Together with <k_perp>, this gives chi_A = 2*sqrt(W)*<k_perp>/(vA*<k_parallel>).
+    An empty field returns zero. The chi_A estimate cannot describe modes in
+    the k_parallel=0 plane, whose Alfven frequency is zero.
+    """
+    return _elsasser_wavenumber_mean(fields, grid, backend, grid.kpar2, sign=sign)
+
+
+def elsasser_energy_rhs_budget(fields, rhs_fields, grid, backend, *, sign):
+    """Directional derivative d_t W = <grad(f) . grad(f_t)>/2, f = phi ∓ psi."""
+    potential_hat = elsasser_potential(fields, sign=sign)
+    rhs_potential_hat = elsasser_potential(rhs_fields, sign=sign)
+    return 0.5 * modal_inner_product_average(grid.kperp2 * potential_hat, rhs_potential_hat, grid, backend)
+
+
+def elsasser_dissipation_rhs(fields, grid, backend, linear_ops, *, sign):
+    """Damping contribution to d_t W^±, allowing different omega and psi damping."""
+    potential_hat = elsasser_potential(fields, sign=sign)
+    phi_t_hat = -linear_ops["omega"] * fields.phi_hat
+    psi_t_hat = -linear_ops["psi"] * fields.psi_hat
+    rhs_potential_hat = phi_t_hat - psi_t_hat if sign > 0 else phi_t_hat + psi_t_hat
+    # Use the same energy derivative as any other RHS; no expanded cross terms.
+    return 0.5 * modal_inner_product_average(grid.kperp2 * potential_hat, rhs_potential_hat, grid, backend)

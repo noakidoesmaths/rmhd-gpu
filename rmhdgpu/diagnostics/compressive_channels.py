@@ -1,40 +1,18 @@
-"""Compressive-coupling channel diagnostics for the inhomogeneous RMHD sets.
+"""Buoyancy and stratification diagnostics shared by the rho and s equation sets.
 
-This module is shared by `rmhdgpu.equations.rmhd_by_nokia_rho` (which evolves
-`drho`) and `rmhdgpu.equations.rmhd_by_nokia_s` (which evolves `s` and derives
-`drho` from it), so both equation sets write identical scalar-diagnostic
-columns and can be read by one plotting script.
+Each equation module supplies ChannelFields in (drho, db_par, du_par) variables.
+The calculations below follow Squire et al., arXiv:2607.08036:
 
-Naming follows Squire et al., *A Transport Theory of Turbulent Coronal Heating
-in General Geometry* (arXiv:2607.08036):
+    gradient_correlators -> buoyancy_work / stratification_channels
+                        -> Elsasser budgets / scalar CSV diagnostics
 
-- `DCF` (direct compressive feedback, their §III.4.1) is the work the buoyancy
-  coupling does on the outward Elsasser energy `W+`. It is exact here: no
-  closure is involved, because these equation sets are the straight-field
-  (`kappa = 0`), no-mean-flow (`U = 0`) special case of their Eq. 18.
-- `ACR` (Alfven-catalyzed relaxation, their §III.5) is the exchange with the
-  background free-energy reservoirs, split into their `Y_B`, `Y_g` and `Y_th`
-  channels. The sum is the `stratification` source the equation modules
-  already computed as a single number.
-- `CCR` (compressively catalyzed reflection, their §III.4.2) has no exact
-  budget term. The Alfvenic nonlinearity conserves `W+` and `W-` separately,
-  so the only Alfvenic/compressive exchange in these equations is the single
-  buoyancy coupling `-g dy(drho)` in `omega_t`. CCR appears instead as the
-  enhanced `W+` dissipation caused by the `W-` that buoyancy generates, so it
-  is measured from `w_minus` together with the `w_plus` dissipation term.
+DCF heating is minus the buoyancy contribution to d_t W+. The three ACR
+channels sum to the total stratification source. CCR has no separate exact
+RHS term here; it is diagnosed through the generated W- and W+ dissipation.
+All budget RHS terms are signed contributions to d_t energy.
 
-Everything is written in the `(drho, db_par, du_par)` variables. The `s`
-equation set reaches them through its own `derive_drho_hat`, and the two forms
-are algebraically identical; `test_compressive_channels.py` asserts that
-numerically against each module's own `total_energy_stratification_rhs`.
-
-Sign convention matches `rmhdgpu.diagnostics.budget`: every value returned as
-an RHS term is a signed contribution to `d_t Q`. In particular the DCF heating
-rate is the *negative* of the `w_plus` buoyancy contribution,
-
-    Q_DCF = -(d_t W+)|_buoyancy,
-
-so `Q_DCF > 0` means the buoyancy coupling is damping the outward wave.
+General Elsasser-wave calculations live in diagnostics.alfvenic. They remain
+importable from this module for existing plotting scripts and callers.
 """
 
 from __future__ import annotations
@@ -42,7 +20,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
+# Re-export the shared helpers to preserve existing imports.
+from rmhdgpu.diagnostics.alfvenic import (
+    elsasser_dissipation_rhs,
+    elsasser_energy,
+    elsasser_energy_rhs_budget,
+    elsasser_kperp_mean,
+    elsasser_kprl_mean,
+    elsasser_modal_density,
+    elsasser_potential,
+)
+from rmhdgpu.fourier_diagnostics import modal_inner_product_average
 from rmhdgpu.operators import dy, inv_lap_perp
 
 
@@ -69,12 +57,10 @@ CHANNEL_SCALAR_DIAGNOSTIC_INFO = {
 
 @dataclass(frozen=True, slots=True)
 class ChannelFields:
-    """The Fourier fields the channel diagnostics are built from.
+    """Fourier potentials and compressive fields in a common normalization.
 
-    Each equation module supplies this in its own variables; only `drho_hat`
-    differs between the two inhomogeneous sets. The compressive fields default
-    to `None` so the same container can hold an RHS state, for which only the
-    Alfvenic potentials are needed.
+    The s equation set derives drho_hat before passing it here. Compressive
+    fields are optional when only Elsasser-wave diagnostics are needed.
     """
 
     phi_hat: Any
@@ -82,143 +68,6 @@ class ChannelFields:
     du_par_hat: Any = None
     db_par_hat: Any = None
     drho_hat: Any = None
-
-
-def elsasser_potential(fields: ChannelFields, *, sign: int) -> Any:
-    """Return `phi -+ psi`, the potential of `z^± = b_hat x grad_perp(phi -+ psi)`.
-
-    The convention used throughout the solver is
-
-        `z^± = u_perp -+ b_perp/sqrt(4 pi rho0)`,
-
-    so `sign > 0` selects `phi - psi`, which is the branch obeying
-    `d_t f + vA d_z f = 0` and therefore propagates along `+b_hat`.
-    """
-
-    return fields.phi_hat - fields.psi_hat if sign > 0 else fields.phi_hat + fields.psi_hat
-
-
-def elsasser_modal_density(fields: ChannelFields, grid: Any, backend: Any, *, sign: int) -> Any:
-    """Return the modal density of `W^± = 0.25 <|grad_perp(phi -+ psi)|^2>`."""
-
-    f_hat = elsasser_potential(fields, sign=sign)
-    return 0.25 * grid.kperp2 * (backend.xp.abs(f_hat) ** 2)
-
-
-def elsasser_energy(fields: ChannelFields, grid: Any, backend: Any, *, sign: int) -> float:
-    """Return the volume-averaged Elsasser energy `W^±`.
-
-    `W+ + W-` equals the equation modules' `alfvenic_energy`, since the cross
-    terms cancel.
-    """
-
-    density = elsasser_modal_density(fields, grid, backend, sign=sign)
-    return modal_average(density, grid, backend)
-
-
-def _elsasser_wavenumber_mean(
-    fields: ChannelFields,
-    grid: Any,
-    backend: Any,
-    k_squared: Any,
-    *,
-    sign: int,
-) -> float:
-    """Return the `W^±`-weighted mean of `sqrt(k_squared)`.
-
-    Forming the mean wavenumber as a ratio of modal averages avoids shell
-    binning entirely and evaluates it on the same output cadence as the budget
-    terms, so no interpolation between `t_out_spec` and `t_out_scal` is needed.
-    Returns `0.0` for an empty field so callers can guard on it.
-    """
-
-    density = elsasser_modal_density(fields, grid, backend, sign=sign)
-    total = modal_average(density, grid, backend)
-    if not total > 0.0:
-        return 0.0
-    return modal_average(backend.xp.sqrt(k_squared) * density, grid, backend) / total
-
-
-def elsasser_kperp_mean(fields: ChannelFields, grid: Any, backend: Any, *, sign: int) -> float:
-    """Return the energy-weighted `<k_perp>` of `z^±`.
-
-    The slaved closure's outer scale is `l_perp = 1 / <k_perp>`.
-    """
-
-    return _elsasser_wavenumber_mean(fields, grid, backend, grid.kperp2, sign=sign)
-
-
-def elsasser_kprl_mean(fields: ChannelFields, grid: Any, backend: Any, *, sign: int) -> float:
-    """Return the energy-weighted `<k_par>` of `z^±`.
-
-    Needed only to monitor the turbulence-strength parameter
-
-        chi_A = z l_par / (vA l_perp) = omega_nl / omega_A = z <k_perp> / (vA <k_par>),
-
-    which the slaved closure assumes is of order unity. It cancels out of the
-    heating predictions themselves. Note `chi_A` is meaningless if the `k_par =
-    0` plane carries significant energy, since `omega_A = 0` there; use
-    `exclude_kpar0` / `project_kpar0` for runs where `chi_A` matters.
-    """
-
-    return _elsasser_wavenumber_mean(fields, grid, backend, grid.kpar2, sign=sign)
-
-
-def elsasser_energy_rhs_budget(
-    fields: ChannelFields,
-    rhs_fields: ChannelFields,
-    grid: Any,
-    backend: Any,
-    *,
-    sign: int,
-) -> float:
-    """Return the instantaneous `d_t W^±` along a supplied RHS.
-
-    Mirrors `rmhdgpu.diagnostics.alfvenic.alfvenic_energy_rhs_budget`: pass the
-    state fields and the fields of an RHS state, and get the directional
-    derivative of `W^±` along it. Used by the tests to pin the closed-form
-    buoyancy work against the actual equations.
-    """
-
-    xp = backend.xp
-    f_hat = elsasser_potential(fields, sign=sign)
-    f_t_hat = elsasser_potential(rhs_fields, sign=sign)
-    density = 0.5 * grid.kperp2 * xp.real(xp.conj(f_hat) * f_t_hat)
-    return modal_average(density, grid, backend)
-
-
-def elsasser_dissipation_rhs(
-    fields: ChannelFields,
-    grid: Any,
-    backend: Any,
-    linear_ops: dict[str, Any],
-    *,
-    sign: int,
-) -> float:
-    """Return the signed dissipative contribution to `d_t W^±`.
-
-    The diagonal damping gives `d_t phi = -D_omega phi` and `d_t psi = -D_psi
-    psi` (the inverse perpendicular Laplacian commutes with a diagonal
-    operator), so with `f± = phi -+ psi`
-
-        d_t W^± = 0.5 kperp2 [ -D_om |phi|^2 - D_psi |psi|^2
-                               +- (D_om + D_psi) Re(conj(phi) psi) ].
-
-    The cross term cancels in `W+ + W-`, recovering the Alfvenic part of the
-    modules' `total_energy_dissipation_rhs`. It vanishes identically when the
-    `omega` and `psi` damping operators are equal.
-    """
-
-    xp = backend.xp
-    damp_omega = linear_ops["omega"]
-    damp_psi = linear_ops["psi"]
-    cross_sign = 1.0 if sign > 0 else -1.0
-    density = 0.5 * grid.kperp2 * (
-        -damp_omega * (xp.abs(fields.phi_hat) ** 2)
-        - damp_psi * (xp.abs(fields.psi_hat) ** 2)
-        + cross_sign * (damp_omega + damp_psi) * xp.real(xp.conj(fields.phi_hat) * fields.psi_hat)
-    )
-    return modal_average(density, grid, backend)
 
 
 def gradient_correlators(fields: ChannelFields, grid: Any, backend: Any) -> dict[str, float]:
@@ -240,34 +89,24 @@ def gradient_correlators(fields: ChannelFields, grid: Any, backend: Any) -> dict
 
 
 def buoyancy_work(correlators: dict[str, float], p: Any) -> dict[str, float]:
-    """Return the signed buoyancy contributions to `d_t W+` and `d_t W-`.
-
-    Buoyancy enters only `omega_t`, so it drives `z+` and `z-` equally:
+    """Signed work from the -g dy(drho) term in omega_t:
 
         d_t W^±|_buoy = -(g/2) <drho dy(phi)> +- (g/2) <drho dy(psi)>.
 
-    Their sum is `-g <drho dy(phi)>`, which is exactly the `acr_g` channel: the
-    gravity coupling is a direct exchange between background potential energy
-    and the Alfvenic fluctuations.
+    Their sum is -g <drho dy(phi)> = acr_g. DCF heating is minus the W+ term.
     """
 
-    half_g = 0.5 * p.g
     return {
-        "w_plus": -half_g * (correlators["rho_phi"] - correlators["rho_psi"]),
-        "w_minus": -half_g * (correlators["rho_phi"] + correlators["rho_psi"]),
+        "w_plus": -0.5 * p.g * (correlators["rho_phi"] - correlators["rho_psi"]),
+        "w_minus": -0.5 * p.g * (correlators["rho_phi"] + correlators["rho_psi"]),
     }
 
 
 def stratification_channels(correlators: dict[str, float], p: Any) -> dict[str, float]:
-    """Split the background-gradient source `Y` into the paper's ACR channels.
+    """Split the total stratification source Y into magnetic, gravity and thermal terms.
 
-    The three returned terms sum to the modules' existing single
-    `stratification` term, so they replace it in the total-energy budget
-    without changing `total_energy_rhs_total`.
-
-    Only `acr_B + acr_g` is net heating. `acr_th` is the extraction of
-    background *thermal* free energy that is subsequently dissipated back into
-    thermal energy (their `Y_th`), so counting it as heating double-counts.
+    Only acr_B + acr_g is net heating. acr_th extracts background thermal free
+    energy that is later dissipated back into heat; do not count it twice.
     """
 
     entropy_weight = p.cs2 * p.K_s / (p.gamma * (p.gamma - 1.0))
@@ -288,15 +127,17 @@ def elsasser_budgets(
     p: Any,
     *,
     linear_ops: dict[str, Any] | None = None,
+    correlators: dict[str, float] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Return `w_plus` / `w_minus` conserved-quantity budgets.
 
     Shaped for `rmhdgpu.diagnostics.budget.flatten_conserved_quantity_budgets`,
     so the equation modules can merge this straight into their returned budget
-    dictionary.
+    dictionary. Pass already computed correlators to avoid repeating them.
     """
 
-    correlators = gradient_correlators(fields, grid, backend)
+    if correlators is None:
+        correlators = gradient_correlators(fields, grid, backend)
     work = buoyancy_work(correlators, p)
 
     budgets: dict[str, dict[str, Any]] = {}
@@ -356,12 +197,7 @@ def channel_scalar_diagnostics(
 
 
 def rhs_channel_fields(rhs_state: Any, grid: Any) -> ChannelFields:
-    """Return the Alfvenic `ChannelFields` of an RHS state.
-
-    `phi_t` is derived from `omega_t` the same way `phi` is derived from
-    `omega`, so this can be fed to `elsasser_energy_rhs_budget` to get `d_t W^±`
-    along any RHS (a full ideal RHS, or one holding a single isolated term).
-    """
+    """Convert omega_t and psi_t into the potentials used by Elsasser RHS budgets."""
 
     return ChannelFields(
         phi_hat=inv_lap_perp(rhs_state["omega"], grid),

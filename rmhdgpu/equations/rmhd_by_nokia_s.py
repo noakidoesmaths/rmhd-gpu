@@ -638,7 +638,9 @@ def compute_conserved_quantity_budgets(
             "rhs_terms": rhs_terms,
         }
     }
-    budgets.update(channels.elsasser_budgets(fields, grid, backend, p, linear_ops=linear_ops))
+    budgets.update(channels.elsasser_budgets(
+        fields, grid, backend, p, linear_ops=linear_ops, correlators=correlators,
+    ))
     if extra_rhs_terms is not None:
         for quantity_name in ("w_plus", "w_minus"):
             budgets[quantity_name]["rhs_terms"].update(

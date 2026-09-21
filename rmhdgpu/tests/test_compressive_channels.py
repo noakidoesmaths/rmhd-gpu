@@ -16,6 +16,7 @@ import pytest
 from rmhdgpu.backend import build_backend
 from rmhdgpu.config import Config
 from rmhdgpu.diagnostics import compressive_channels as channels
+from rmhdgpu.diagnostics import alfvenic as alfvenic_diagnostics
 from rmhdgpu.equations import rmhd_by_nokia_rho, rmhd_by_nokia_s
 from rmhdgpu.fft import FFTManager
 from rmhdgpu.grid import build_grid
@@ -213,3 +214,49 @@ def test_kperp_mean_is_a_sensible_outer_scale(equation_set: str) -> None:
     kperp_max = float(backend.scalar_to_float(backend.xp.max(backend.xp.sqrt(grid.kperp2))))
 
     assert 0.0 < kperp_mean <= kperp_max
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "scipy_cpu", "cupy"])
+@pytest.mark.parametrize("sign", [1, -1])
+def test_elsasser_damping_matches_single_mode(backend_name, sign):
+    """Pin each branch's damping and normalization to an analytic wave."""
+    if backend_name == "scipy_cpu":
+        pytest.importorskip("scipy.fft")
+    if backend_name == "cupy":
+        cupy = pytest.importorskip("cupy")
+        try:
+            cupy.zeros(1)
+        except Exception as exc:
+            pytest.skip(f"GPU unavailable: {exc}")
+    config = Config(Nx=8, Ny=8, Nz=8, backend=backend_name)
+    backend = build_backend(config)
+    grid = build_grid(config, backend)
+    fft = FFTManager(grid, backend)
+    wave = backend.xp.cos(grid.x[:, None, None] + 2 * grid.y[None, :, None] + grid.z[None, None, :])
+    fields = channels.ChannelFields(phi_hat=fft.r2c(3 * wave), psi_hat=fft.r2c(0.5 * wave))
+    linear_ops = {"omega": 0.2, "psi": 0.7}
+
+    # f = (3 ∓ 0.5) cos(x+2y+z), f_t = (-0.6 ± 0.35) cos(x+2y+z).
+    # W = |k_perp|^2 A^2/8 and d_t W = |k_perp|^2 A A_t/4.
+    amplitude = 3 - sign * 0.5
+    amplitude_t = -0.6 + sign * 0.35
+    assert alfvenic_diagnostics.elsasser_energy(fields, grid, backend, sign=sign) == pytest.approx(
+        5 * amplitude**2 / 8
+    )
+    assert alfvenic_diagnostics.elsasser_dissipation_rhs(
+        fields, grid, backend, linear_ops, sign=sign,
+    ) == pytest.approx(5 * amplitude * amplitude_t / 4)
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_reused_correlators_preserve_budgets(equation_set):
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
+    state = _random_state(module, backend, grid, fft, mask)
+    fields = module.channel_fields(state, grid, config)
+    p = module.derived_parameters(config)
+    correlators = channels.gradient_correlators(fields, grid, backend)
+    expected = channels.elsasser_budgets(fields, grid, backend, p)
+    reused = channels.elsasser_budgets(fields, grid, backend, p, correlators=correlators)
+    assert reused == expected
+    assert correlators == channels.gradient_correlators(fields, grid, backend)
