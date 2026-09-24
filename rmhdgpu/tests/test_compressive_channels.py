@@ -21,7 +21,7 @@ from rmhdgpu.equations import rmhd_by_nokia_rho, rmhd_by_nokia_s
 from rmhdgpu.fft import FFTManager
 from rmhdgpu.grid import build_grid
 from rmhdgpu.masks import build_dealias_mask
-from rmhdgpu.operators import dy, lap_perp
+from rmhdgpu.operators import dx, dy, lap_perp
 from rmhdgpu.state import State
 from rmhdgpu.workspace import Workspace
 
@@ -246,6 +246,75 @@ def test_elsasser_damping_matches_single_mode(backend_name, sign):
     assert alfvenic_diagnostics.elsasser_dissipation_rhs(
         fields, grid, backend, linear_ops, sign=sign,
     ) == pytest.approx(5 * amplitude * amplitude_t / 4)
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "scipy_cpu", "cupy"])
+@pytest.mark.parametrize("plus_k, expected", [
+    ((1, 2), 2 / np.sqrt(5)),
+    ((0, 1), 1.0),  # k along y, so z = zhat x grad f points along x.
+    ((3, 0), 0.0),  # k along x, so z points along y.
+])
+def test_x_alignment_matches_single_modes(backend_name, plus_k, expected):
+    """Each branch sees only its own wave, with rms(z_x)/rms(|z|) = |k_y|/|k_perp|."""
+    if backend_name == "scipy_cpu":
+        pytest.importorskip("scipy.fft")
+    if backend_name == "cupy":
+        cupy = pytest.importorskip("cupy")
+        try:
+            cupy.zeros(1)
+        except Exception as exc:
+            pytest.skip(f"GPU unavailable: {exc}")
+    config = Config(Nx=8, Ny=8, Nz=8, backend=backend_name)
+    backend = build_backend(config)
+    grid = build_grid(config, backend)
+    fft = FFTManager(grid, backend)
+    x, y, z = grid.x[:, None, None], grid.y[None, :, None], grid.z[None, None, :]
+    plus = 3 * backend.xp.cos(plus_k[0] * x + plus_k[1] * y + z)
+    minus = 0.5 * backend.xp.cos(x + y + 2 * z)  # Isotropic in (k_x, k_y): 1/sqrt(2).
+    # The potentials are phi - psi = plus and phi + psi = minus.
+    fields = channels.ChannelFields(
+        phi_hat=fft.r2c(0.5 * (plus + minus)), psi_hat=fft.r2c(0.5 * (minus - plus)),
+    )
+
+    assert alfvenic_diagnostics.elsasser_x_alignment(
+        fields, grid, backend, sign=1,
+    ) == pytest.approx(expected, abs=1.0e-12)
+    assert alfvenic_diagnostics.elsasser_x_alignment(
+        fields, grid, backend, sign=-1,
+    ) == pytest.approx(1 / np.sqrt(2), rel=1.0e-12)
+    empty = channels.ChannelFields(phi_hat=0 * fields.phi_hat, psi_hat=0 * fields.psi_hat)
+    assert alfvenic_diagnostics.elsasser_x_alignment(empty, grid, backend, sign=1) == 0.0
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_x_alignment_matches_real_space_rms(equation_set):
+    """The saved Fourier-space column must equal rms(z_x)/rms(|z|) measured in real space."""
+
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
+    state = _random_state(module, backend, grid, fft, mask)
+    fields = module.channel_fields(state, grid, config)
+    xp = backend.xp
+
+    for sign in (1, -1):
+        potential_hat = channels.elsasser_potential(fields, sign=sign)
+        z_x = -fft.c2r(dy(potential_hat, grid))
+        z_y = fft.c2r(dx(potential_hat, grid))
+        expected = float(xp.sqrt(xp.mean(z_x**2) / xp.mean(z_x**2 + z_y**2)))
+        measured = channels.elsasser_x_alignment(fields, grid, backend, sign=sign)
+        assert measured == pytest.approx(expected, rel=1.0e-12)
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_every_channel_column_is_documented(equation_set):
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
+    state = _random_state(module, backend, grid, fft, mask)
+    diagnostics = channels.channel_scalar_diagnostics(
+        module.channel_fields(state, grid, config), grid, backend, module.derived_parameters(config),
+    )
+    assert {"w_plus_align", "w_minus_align"} <= set(diagnostics)
+    assert set(diagnostics) <= set(module.SCALAR_DIAGNOSTIC_INFO)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))

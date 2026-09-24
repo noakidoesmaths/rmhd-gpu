@@ -29,6 +29,7 @@ from rmhdgpu.diagnostics.alfvenic import (
     elsasser_kprl_mean,
     elsasser_modal_density,
     elsasser_potential,
+    elsasser_x_alignment,
 )
 from rmhdgpu.fourier_diagnostics import modal_inner_product_average
 from rmhdgpu.operators import dy, inv_lap_perp
@@ -41,6 +42,8 @@ CHANNEL_SCALAR_DIAGNOSTIC_INFO = {
     "w_minus_kperp": "Energy-weighted <k_perp> of z-.",
     "w_plus_kprl": "Energy-weighted <k_par> of z+; chi_A = 2 sqrt(W+) <k_perp> / (vA <k_par>).",
     "w_minus_kprl": "Energy-weighted <k_par> of z-.",
+    "w_plus_align": "rms(z+_x)/rms(|z+|): share of z+ along the gradient direction x; 1/sqrt(2) if isotropic. Eq. (47) factor.",
+    "w_minus_align": "rms(z-_x)/rms(|z-|).",
     "q_dcf": "Instantaneous direct-compressive-feedback heating rate, -(d_t W+)|_buoyancy.",
     "q_ccr_source": "Instantaneous buoyancy drive of W-, -(d_t W-)|_buoyancy; the z- source feeding CCR.",
     "acr_B": "ACR channel exchanging with background magnetic free energy (their Y_B).",
@@ -169,8 +172,9 @@ def channel_scalar_diagnostics(
     `q_dcf` and `q_ccr_source` duplicate information in the `w_*_rhs_buoyancy`
     budget columns, but deliberately: the budget columns are averaged over the
     output interval by the driver, whereas the closure prediction is built from
-    the instantaneous `w_plus` and `w_plus_kperp` in the same row. Comparing
-    measurement to prediction wants both sides evaluated at the same instant.
+    the instantaneous `w_plus`, `w_plus_kperp` and `w_plus_align` in the same
+    row. Comparing measurement to prediction wants both sides evaluated at the
+    same instant.
 
     `N_sq` and `vA` are run constants echoed into every row so that plotting
     scripts need only the CSV.
@@ -186,6 +190,8 @@ def channel_scalar_diagnostics(
         "w_minus_kperp": elsasser_kperp_mean(fields, grid, backend, sign=-1),
         "w_plus_kprl": elsasser_kprl_mean(fields, grid, backend, sign=1),
         "w_minus_kprl": elsasser_kprl_mean(fields, grid, backend, sign=-1),
+        "w_plus_align": elsasser_x_alignment(fields, grid, backend, sign=1),
+        "w_minus_align": elsasser_x_alignment(fields, grid, backend, sign=-1),
         "q_dcf": -work["w_plus"],
         "q_ccr_source": -work["w_minus"],
         "N_sq": float(p.N_sq),

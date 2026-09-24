@@ -6,11 +6,15 @@ For inhomogeneous_rmhd_rho, all background gradients point along x:
     predicted_rms = abs(F) * l_perp * rms(z_x) / z_rms
 
 Here z = zhat cross grad_perp(phi - sign*psi), z_rms = 2*sqrt(W), and
-l_perp = 1/<k_perp>. The solver's operators and diagnostics calculate these.
+l_perp = 1/<k_perp>. The solver calculates these at every scalar-output time.
 This is a mixing-length estimate, not an exact pointwise solution.
 
-Snapshots measure rms(z_x)/z_rms directly. --from-csv assumes 1/sqrt(2)
-(Eq. 48) and uses the saved plus-branch perpendicular wavenumber instead.
+Everything is read from scalar_diagnostics.csv, so no full-field snapshots are
+needed. The alignment rms(z_x)/z_rms comes from the w_plus_align / w_minus_align
+columns. CSVs written before those columns existed fall back to the isotropic
+value 1/sqrt(2) (Eq. 48) with a warning. That can be off by a large factor when
+the flow is anisotropic in the perpendicular plane, so re-run such cases.
+The pump is the stronger Elsasser wave in the first row unless --branch is given.
 The title averages measured chi_A = z_rms*<k_perp>/(vA*<k_parallel>) over
 the plotted times, omitting undefined values.
 
@@ -25,7 +29,7 @@ There is no curvature term in this model and no extra isotropy factor here.
 Examples (also usable as main([...]) in Spyder):
     python vis/plot_slaved_projection.py RUN_DIRECTORY
     python vis/plot_slaved_projection.py RUN_DIRECTORY --fields drho db_par --show
-    python vis/plot_slaved_projection.py RUN_DIRECTORY --from-csv
+    python vis/plot_slaved_projection.py RUN_DIRECTORY --branch minus
 """
 
 from __future__ import annotations
@@ -35,7 +39,6 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 
 try:
     import tomllib
@@ -47,18 +50,7 @@ if __package__ in {None, ""}:
 
 import numpy as np
 
-from rmhdgpu.backend import build_backend
-from rmhdgpu.diagnostics.compressive_channels import (
-    ChannelFields,
-    elsasser_energy,
-    elsasser_kperp_mean,
-    elsasser_kprl_mean,
-    elsasser_potential,
-)
 from rmhdgpu.equations.rmhd_by_nokia_rho import derived_parameters
-from rmhdgpu.fft import FFTManager
-from rmhdgpu.grid import build_grid
-from rmhdgpu.operators import dy, inv_lap_perp
 from vis._matplotlib import finalize_figure, import_pyplot
 
 
@@ -69,7 +61,6 @@ LABELS = {
     "db_par": r"(v_A^2/v_S^2)\,\delta B_\parallel/B_0",
 }
 COLORS = {"drho": "tab:blue", "du_par": "tab:green", "db_par": "tab:orange"}
-BRANCH_SIGN = {"plus": 1, "minus": -1}
 ISOTROPIC_ALIGNMENT = 1.0 / np.sqrt(2.0)
 
 
@@ -88,10 +79,6 @@ def measured_divisors(p):
     return {"drho": 1.0, "du_par": p.vA, "db_par": p.alpha}
 
 
-def rms(values):
-    return float(np.sqrt(np.mean(values**2)))
-
-
 @dataclass
 class RunSeries:
     """Arrays ready to plot, with one value per saved time."""
@@ -104,8 +91,8 @@ class RunSeries:
     z_ratio_predicted: np.ndarray  # Eq. (73) / pump RMS, using measured density
     measured: dict[str, np.ndarray]
     predicted: dict[str, np.ndarray]
-    source: str
-    branch: str | None
+    source: str  # Whether the alignment was measured or assumed isotropic
+    branch: str  # The pump: "plus" or "minus"
 
 
 def load_parameters(run_dir):
@@ -120,101 +107,15 @@ def load_parameters(run_dir):
     return derived_parameters(physics)
 
 
-def solver_objects(snapshot_path):
-    """Build the CPU grid and FFT once, using the saved periodic axes."""
-    import h5py
+def read_from_csv(run_dir, fields, p, branch=None):
+    """Read one run's scalar_diagnostics.csv into arrays ready to plot.
 
-    with h5py.File(snapshot_path, "r") as handle:
-        x, y, z = [handle[f"metadata/{axis}"][:] for axis in ("x", "y", "z")]
-    # A periodic box includes one more spacing than the span of its grid points.
-    lengths = [float(a[-1] - a[0] + a[1] - a[0]) for a in (x, y, z)]
-    config = SimpleNamespace(
-        backend="numpy", fft_workers=1,
-        Nx=len(x), Ny=len(y), Nz=len(z),
-        Lx=lengths[0], Ly=lengths[1], Lz=lengths[2],
-        real_dtype=np.float64, complex_dtype=np.complex128,
-    )
-    backend = build_backend(config)
-    grid = build_grid(config, backend)
-    return backend, grid, FFTManager(grid, backend)
-
-
-def read_from_snapshots(run_dir, fields, p, branch=None, stride=1):
-    """Read fields, measure the Elsasser projection, then calculate each RMS."""
-    import h5py
-
-    if stride < 1:
-        raise SystemExit("--stride must be at least 1.")
-    paths = sorted((run_dir / "fullfields").glob("fullfield_*.h5"))[::stride]
-    if not paths:
-        raise SystemExit(f"No full-field snapshots in {run_dir / 'fullfields'}.")
-    print(f"Reading {len(paths)} snapshots from {run_dir.name}/fullfields ...")
-    backend, grid, fft = solver_objects(paths[0])
-    sign = BRANCH_SIGN.get(branch)
-    forcing, divisor = forcings(p), measured_divisors(p)
-    times, lengths, alignments, chi_a_values = [], [], [], []
-    z_ratio, z_ratio_predicted = [], []
-    measured = {name: [] for name in fields}
-    predicted = {name: [] for name in fields}
-
-    for path in paths:
-        with h5py.File(path, "r") as handle:
-            output = handle["output"]
-            times.append(float(output["time"][()]))
-            phi_hat = inv_lap_perp(fft.r2c(output["omega"][:]), grid)
-            psi_hat = fft.r2c(output["psi"][:])
-            for name in fields:
-                measured[name].append(rms(output[name][:]) / divisor[name])
-            # Eq. (73) also needs density when its own panel is deselected.
-            density_rms = measured["drho"][-1] if "drho" in fields else np.nan
-            if "drho" not in fields and "drho" in output:
-                density_rms = rms(output["drho"][:])
-
-        alfvenic = ChannelFields(phi_hat=phi_hat, psi_hat=psi_hat)
-        w_plus = elsasser_energy(alfvenic, grid, backend, sign=1)
-        w_minus = elsasser_energy(alfvenic, grid, backend, sign=-1)
-        # Auto picks the stronger branch at the FIRST snapshot and keeps it.
-        if sign is None:
-            sign = 1 if w_plus >= w_minus else -1
-
-        energy = w_plus if sign > 0 else w_minus
-        counter_energy = w_minus if sign > 0 else w_plus
-        kperp = elsasser_kperp_mean(alfvenic, grid, backend, sign=sign)
-        kparallel = elsasser_kprl_mean(alfvenic, grid, backend, sign=sign)
-        potential_hat = elsasser_potential(alfvenic, sign=sign)
-        z_x = -fft.c2r(dy(potential_hat, grid))  # zhat cross grad has x = -dy
-        z_rms = 2.0 * np.sqrt(max(energy, 0.0))  # W = <|z|^2>/4
-        l_perp = 1.0 / kperp if kperp > 0.0 else np.nan
-        alignment = rms(z_x) / z_rms if z_rms > 0.0 else 0.0
-        omega_a = p.vA * kparallel
-        chi_a_values.append(z_rms * kperp / omega_a if omega_a > 0.0 else np.nan)
-        z_counter_rms = 2.0 * np.sqrt(max(counter_energy, 0.0))
-        z_ratio.append(z_counter_rms / z_rms if z_rms > 0.0 else np.nan)
-        # Divide Eq. (73) by the pump RMS to get the dimensionless wave ratio.
-        z_ratio_predicted.append(
-            l_perp * abs(p.g) * density_rms / z_rms**2 if z_rms > 0.0 else np.nan
-        )
-
-        # RMS[(l_perp/z_rms) * z_x * F] factorises because F is constant.
-        # With no Alfvenic field the prediction is zero, even though l_perp is undefined.
-        projected_length = l_perp * alignment if z_rms > 0.0 else 0.0
-        for name in fields:
-            predicted[name].append(abs(forcing[name]) * projected_length)
-        lengths.append(l_perp)
-        alignments.append(alignment)
-
-    return RunSeries(
-        times=np.array(times), l_perp=np.array(lengths), alignment=np.array(alignments),
-        chi_a=np.array(chi_a_values),
-        z_ratio=np.array(z_ratio), z_ratio_predicted=np.array(z_ratio_predicted),
-        measured={name: np.array(values) for name, values in measured.items()},
-        predicted={name: np.array(values) for name, values in predicted.items()},
-        source="full fields", branch="plus" if sign > 0 else "minus",
-    )
-
-
-def read_from_csv(run_dir, fields, p):
-    """Use saved RMS and w_plus_kperp, assuming Eq. (48) isotropic alignment."""
+    Each row holds the field RMS, W^±, <k_perp>, <k_parallel> and the
+    alignment rms(z_x)/z_rms (w_plus_align / w_minus_align) at one
+    scalar-output time. A CSV written before the alignment columns existed
+    falls back to the Eq. (48) value 1/sqrt(2). That fallback can be off by a
+    large factor in anisotropic runs.
+    """
     csv_path = run_dir / "scalar_diagnostics.csv"
     if not csv_path.is_file():
         raise SystemExit(f"Missing {csv_path}.")
@@ -222,42 +123,68 @@ def read_from_csv(run_dir, fields, p):
         rows = list(csv.DictReader(handle))
     if not rows:
         raise SystemExit(f"{csv_path} contains no data rows.")
-    time_key = "time" if "time" in rows[0] else "t"
-    required = [time_key, "w_plus_kperp"] + [f"{name}_rms" for name in fields]
-    missing = [name for name in required if name not in rows[0]]
+    first_row = rows[0]
+    time_key = "time" if "time" in first_row else "t"
+
+    # Auto picks the stronger branch in the FIRST row and keeps it for the whole run.
+    # A CSV without both energies can only be read on the plus branch.
+    if branch is None:
+        branch = "plus"
+        if "w_plus" in first_row and "w_minus" in first_row:
+            if float(first_row["w_minus"]) > float(first_row["w_plus"]):
+                branch = "minus"
+    pump, counter = ("w_plus", "w_minus") if branch == "plus" else ("w_minus", "w_plus")
+
+    required = [time_key, f"{pump}_kperp"] + [f"{name}_rms" for name in fields]
+    missing = [name for name in required if name not in first_row]
     if missing:
-        raise SystemExit(f"{csv_path} is missing {missing}. Use full-field snapshots instead.")
-    optional = [name for name in ("w_plus", "w_minus", "w_plus_kprl", "drho_rms")
-                if name in rows[0] and name not in required]
+        raise SystemExit(f"{csv_path} is missing {missing}; it may predate these diagnostics, "
+                         "so re-run the case with the current solver.")
+    # Eq. (73) needs drho_rms even when the density panel is not selected.
+    optional = [name for name in (pump, counter, f"{pump}_kprl", f"{pump}_align", "drho_rms")
+                if name in first_row and name not in required]
     columns = {name: np.array([float(row[name]) for row in rows]) for name in required + optional}
 
-    kperp = columns["w_plus_kperp"]
+    kperp = columns[f"{pump}_kperp"]
     l_perp = np.divide(1.0, kperp, out=np.full_like(kperp, np.nan), where=np.abs(kperp) > 0.0)
+    if f"{pump}_align" in columns:
+        alignment = columns[f"{pump}_align"]
+        source = "CSV: measured alignment"
+    else:
+        print(f"{csv_path.name} has no {pump}_align column (written before it was added). "
+              "Assuming isotropic alignment 1/sqrt(2), Eq. (48). The Eq. (47) estimate can "
+              "then be off by a large factor; re-run the case to save the measured value.")
+        alignment = np.full_like(kperp, ISOTROPIC_ALIGNMENT)
+        source = "CSV: Eq. (48) isotropy assumed"
+    # RMS[(l_perp/z_rms) * z_x * F] factorises because F is constant. The saved alignment
+    # is zero for an empty field, so the prediction is zero there although l_perp is undefined.
+    projected_length = np.where(alignment == 0.0, 0.0, l_perp * alignment)
+
     # Older CSVs can still be plotted when the chi_A diagnostics are absent.
     chi_a = np.full_like(kperp, np.nan)
-    if "w_plus" in columns and "w_plus_kprl" in columns:
-        omega_nl = 2.0 * np.sqrt(columns["w_plus"]) * kperp
-        omega_a = p.vA * columns["w_plus_kprl"]
+    if pump in columns and f"{pump}_kprl" in columns:
+        omega_nl = 2.0 * np.sqrt(np.maximum(columns[pump], 0.0)) * kperp
+        omega_a = p.vA * columns[f"{pump}_kprl"]
         np.divide(omega_nl, omega_a, out=chi_a, where=omega_a > 0.0)
     z_ratio = np.full_like(kperp, np.nan)
     z_ratio_predicted = np.full_like(kperp, np.nan)
-    if "w_plus" in columns:
-        z_pump = 2.0 * np.sqrt(np.maximum(columns["w_plus"], 0.0))
-        if "w_minus" in columns:
-            z_counter_rms = 2.0 * np.sqrt(np.maximum(columns["w_minus"], 0.0))
+    if pump in columns:
+        z_pump = 2.0 * np.sqrt(np.maximum(columns[pump], 0.0))
+        if counter in columns:
+            z_counter_rms = 2.0 * np.sqrt(np.maximum(columns[counter], 0.0))
             np.divide(z_counter_rms, z_pump, out=z_ratio, where=z_pump > 0.0)
         if "drho_rms" in columns:
+            # Divide Eq. (73) by the pump RMS to get the dimensionless wave ratio.
             np.divide(l_perp * abs(p.g) * columns["drho_rms"], z_pump**2,
                       out=z_ratio_predicted, where=z_pump > 0.0)
     forcing, divisor = forcings(p), measured_divisors(p)
     return RunSeries(
-        times=columns[time_key], l_perp=l_perp,
-        alignment=np.full_like(l_perp, ISOTROPIC_ALIGNMENT),
+        times=columns[time_key], l_perp=l_perp, alignment=alignment,
         chi_a=chi_a,
         z_ratio=z_ratio, z_ratio_predicted=z_ratio_predicted,
         measured={name: columns[f"{name}_rms"] / divisor[name] for name in fields},
-        predicted={name: abs(forcing[name]) * l_perp * ISOTROPIC_ALIGNMENT for name in fields},
-        source="CSV: Eq. (48) isotropy assumed, plus branch", branch=None,
+        predicted={name: abs(forcing[name]) * projected_length for name in fields},
+        source=source, branch=branch,
     )
 
 
@@ -289,7 +216,7 @@ def plot_series(run_dir, run, fields, p, output_path, show=False):
         ax.legend(fontsize=9)
 
     ax = axes.ravel()[len(fields)]
-    # The paper calls the pump z+; swap solver labels when --branch minus is used.
+    # The paper calls the pump z+; swap the labels when z- is the pump.
     pump_label = r"z^-" if run.branch == "minus" else r"z^+"
     counter_label = r"z^+" if run.branch == "minus" else r"z^-"
     ratio_label = rf"{counter_label}_{{\rm rms}}/{pump_label}_{{\rm rms}}"
@@ -312,11 +239,10 @@ def plot_series(run_dir, run, fields, p, output_path, show=False):
     for ax in axes.ravel()[panel_count:]:
         ax.set_visible(False)
 
-    branch_label = "" if run.branch is None else f"; {run.branch} branch"
     finite_chi_a = run.chi_a[np.isfinite(run.chi_a)]
     chi_a_label = f"{finite_chi_a.mean():.3g}" if finite_chi_a.size else "n/a"
     fig.suptitle(
-        f"{run_dir.name}: slaved amplitudes\n{run.source}{branch_label} | "
+        f"{run_dir.name}: slaved amplitudes\n{run.source}; {run.branch} branch | "
         rf"$g$ = {p.g:.4g}, $\chi$ = {p.chi:g}, $K_\rho$ = {p.K_rho0:g} | "
         rf"mean RMS$(z_x)/z_{{\rm rms}}$ = {np.mean(run.alignment):.3f} "
         rf"(isotropic: {ISOTROPIC_ALIGNMENT:.3f})" + "\n"
@@ -329,14 +255,12 @@ def plot_series(run_dir, run, fields, p, output_path, show=False):
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("path", type=Path, help="Run directory containing input_copy.input.")
+    parser.add_argument("path", type=Path,
+                        help="Run directory containing input_copy.input and scalar_diagnostics.csv.")
     parser.add_argument("--fields", nargs="+", choices=tuple(LABELS), default=list(LABELS),
                         help="Compressive panels to show; the Eq. (73) panel is always added.")
-    parser.add_argument("--from-csv", action="store_true",
-                        help="Use scalar diagnostics, plus-branch k_perp and isotropic alignment.")
-    parser.add_argument("--branch", choices=tuple(BRANCH_SIGN),
-                        help="Snapshot branch; default picks the stronger one at the first snapshot.")
-    parser.add_argument("--stride", type=int, default=1, help="Read every Nth snapshot (default: 1).")
+    parser.add_argument("--branch", choices=("plus", "minus"),
+                        help="Pump branch; default picks the stronger one in the first CSV row.")
     parser.add_argument("--output", type=Path, help="Image path; default: RUN_DIRECTORY/slaved_projection.png.")
     parser.add_argument("--show", action="store_true", help="Show the figure after saving (e.g. in Spyder).")
     return parser
@@ -345,20 +269,9 @@ def build_parser():
 def main(argv=None) -> Path:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.stride < 1:
-        parser.error("--stride must be at least 1.")
     run_dir = args.path.expanduser().resolve()
     p = load_parameters(run_dir)
-
-    has_snapshots = any((run_dir / "fullfields").glob("fullfield_*.h5"))
-    if args.from_csv or not has_snapshots:
-        if not args.from_csv:
-            print(f"No snapshots in {run_dir.name}/fullfields; falling back to the CSV.")
-        if args.branch is not None:
-            print("CSV mode uses w_plus_kperp; --branch applies only to snapshots.")
-        run = read_from_csv(run_dir, args.fields, p)
-    else:
-        run = read_from_snapshots(run_dir, args.fields, p, args.branch, args.stride)
+    run = read_from_csv(run_dir, args.fields, p, args.branch)
 
     output_path = (run_dir / "slaved_projection.png" if args.output is None
                    else args.output.expanduser().resolve())

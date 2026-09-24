@@ -61,6 +61,11 @@ SCANS = {
 
 FIELDS = ("drho", "du_par", "db_par")
 
+# The fields whose drive each knob moves (see the table above), so each scan's figure only
+# shows panels that can have a slope. `test_slaved_gradient_scan.py` checks this against
+# `background_forcings`.
+FIELDS_DRIVEN_BY = {"K_rho0": ("drho",), "K_p0": ("du_par", "db_par"), "g": FIELDS}
+
 
 def background_forcings(p):
     """The x components of Eq. (46), for a straight field and no mean flow.
@@ -232,6 +237,7 @@ def plot_scan(parameter, run_dirs, scan_dir):
     command = [
         sys.executable, str(PLOT_SCRIPT), *[str(path) for path in run_dirs],
         "--parameter", parameter,
+        "--fields", *FIELDS_DRIVEN_BY[parameter],
         "--output", str(output),
         "--summary-output", str(output.with_suffix(".csv")),
     ]
@@ -290,7 +296,8 @@ def main(argv=None):
         elif run_dirs:
             paths = " ".join(str(path) for path in run_dirs)
             print(f"\nPlot the {parameter} scan with:\n"
-                  f"  python {PLOT_SCRIPT} {paths} --parameter {parameter}")
+                  f"  python {PLOT_SCRIPT} {paths} --parameter {parameter} "
+                  f"--fields {' '.join(FIELDS_DRIVEN_BY[parameter])}")
     return completed
 
 

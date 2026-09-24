@@ -6,6 +6,7 @@ psi_hat attributes. They do not depend on a particular equation set.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
@@ -175,6 +176,29 @@ def elsasser_kprl_mean(fields: Any, grid: Any, backend: Any, *, sign: int) -> fl
     the k_parallel=0 plane, whose Alfven frequency is zero.
     """
     return _elsasser_wavenumber_mean(fields, grid, backend, grid.kpar2, sign=sign)
+
+
+def elsasser_x_alignment(fields: Any, grid: Any, backend: Any, *, sign: int) -> float:
+    """Return rms(z^±_x) / rms(|z^±|), the share of z^± pointing along x.
+
+    This is the projection factor in the slaving estimate of Squire et al.,
+    arXiv:2607.08036, Eq. (47), whose background gradients point along x.
+    It is not the dynamic alignment between z+ and z-.
+
+    With z = zhat x grad_perp(f) and f = phi ∓ psi, z_x = -dy(f). Parseval
+    then gives <z_x^2> = <|dy f|^2>, a sum of k_y^2 |f_hat|^2, and
+    <|z|^2> = 4 W, a sum of k_perp^2 |f_hat|^2. The ratio is 1/sqrt(2) for
+    energy spread isotropically in the perpendicular plane (Eq. 48). It is 1
+    when z points along x (k along y) and 0 when z points along y. An empty
+    field returns zero.
+    """
+    potential_power = backend.xp.abs(elsasser_potential(fields, sign=sign))**2
+    z_squared = modal_average(grid.kperp2 * potential_power, grid, backend)
+    if not z_squared > 0.0:
+        return 0.0
+    # |dy f_hat|^2 = k_y^2 |f_hat|^2, so the potential's power is reused.
+    z_x_squared = modal_average(grid.ky**2 * potential_power, grid, backend)
+    return math.sqrt(z_x_squared / z_squared)
 
 
 def elsasser_energy_rhs_budget(fields, rhs_fields, grid, backend, *, sign):

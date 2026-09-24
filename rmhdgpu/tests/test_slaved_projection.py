@@ -21,37 +21,35 @@ def run_dir(tmp_path):
     return tmp_path
 
 
-def write_snapshot(run_dir, index, *, plus=(0.0, 1, 2), minus=(0.0, 1, 2), fields=FIELDS):
-    """Save exact cosine potentials; omega follows analytically from lap_perp(phi)."""
-    h5py = pytest.importorskip("h5py")
-    axis = np.arange(8) * (2 * np.pi / 8)
-    x, y, z = np.meshgrid(axis, axis, axis, indexing="ij")
-    plus_amplitude, plus_kx, plus_ky = plus
-    minus_amplitude, minus_kx, minus_ky = minus
-    plus_potential = plus_amplitude * np.cos(plus_kx * x + plus_ky * y + z)
-    minus_potential = minus_amplitude * np.cos(minus_kx * x + minus_ky * y + z)
-    omega = -0.5 * (
-        (plus_kx**2 + plus_ky**2) * plus_potential
-        + (minus_kx**2 + minus_ky**2) * minus_potential
-    )
-    directory = run_dir / "fullfields"
-    directory.mkdir(exist_ok=True)
-    with h5py.File(directory / f"fullfield_{index:04d}.h5", "w") as handle:
-        for name in ("x", "y", "z"):
-            handle[f"metadata/{name}"] = axis
-        handle["output/time"] = float(index)
-        handle["output/omega"] = omega
-        handle["output/psi"] = 0.5 * (minus_potential - plus_potential)
-        for name in fields:
-            handle[f"output/{name}"] = np.full_like(x, {"drho": 2, "du_par": 3, "db_par": 4}[name])
-
-
 def write_csv(run_dir, time_column="time"):
-    # Only db_par is present: selecting it must not require other RMS columns.
+    """An old-style CSV, written before the energy and alignment columns existed.
+
+    Only db_par is present: selecting it must not require other RMS columns.
+    """
     with (run_dir / "scalar_diagnostics.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow([time_column, "w_plus_kperp", "db_par_rms"])
         writer.writerows([[0, 2, 3], [1, 4, 6]])
+
+
+def write_branch_csv(run_dir):
+    """Give each branch different columns, so reading the wrong one changes every number.
+
+    W- is larger in the first row and smaller in the second. The last row has
+    no Alfvenic field at all, which the solver saves as zero energy, <k> and alignment.
+    """
+    columns = {
+        "time": [0, 1, 2],
+        "w_plus": [1, 9, 0], "w_minus": [4, 1, 0],
+        "w_plus_kperp": [2, 2, 0], "w_minus_kperp": [4, 5, 0],
+        "w_plus_kprl": [1, 1, 0], "w_minus_kprl": [2, 2, 0],
+        "w_plus_align": [0.9, 0.9, 0], "w_minus_align": [0.2, 0.4, 0],
+        "drho_rms": [1, 1, 1], "du_par_rms": [2, 2, 2], "db_par_rms": [3, 6, 3],
+    }
+    with (run_dir / "scalar_diagnostics.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(columns)
+        writer.writerows(zip(*columns.values()))
 
 
 def test_physical_forcings_and_normalizations(run_dir):
@@ -67,68 +65,46 @@ def test_density_forcing_is_defined_without_gravity():
     assert projection.forcings(p)["drho"] == pytest.approx(-0.3)
 
 
-@pytest.mark.parametrize("branch", ["plus", "minus"])
-def test_single_mode_matches_analytic_projection(run_dir, branch):
-    write_snapshot(run_dir, 0, **{branch: (3.0, 1, 2)})
+def test_csv_reads_saved_alignment_on_the_stronger_branch(run_dir, capsys):
+    write_branch_csv(run_dir)
     p = projection.load_parameters(run_dir)
-    run = projection.read_from_snapshots(run_dir, FIELDS, p, branch=branch)
+    run = projection.read_from_csv(run_dir, ["db_par"], p)
 
-    # For k_perp=(1,2), l_perp=1/sqrt(5) and rms(z_x)/rms(|z|)=2/sqrt(5).
-    assert run.branch == branch
-    np.testing.assert_allclose(run.times, [0])
-    np.testing.assert_allclose(run.l_perp, [1 / np.sqrt(5)])
-    np.testing.assert_allclose(run.alignment, [2 / np.sqrt(5)])
-    # Potential amplitude 3, |k_perp|=sqrt(5), k_parallel=1 and vA=2.
-    np.testing.assert_allclose(run.chi_a, [15 / (2 * np.sqrt(2))])
-    for name, measured in {"drho": 2, "du_par": 1.5, "db_par": 16 / 3}.items():
-        np.testing.assert_allclose(run.measured[name], [measured])
-    for name, predicted in {"drho": 0.02, "du_par": 0.04, "db_par": 0.08}.items():
-        np.testing.assert_allclose(run.predicted[name], [predicted])
-
-
-def test_auto_branch_stays_fixed_when_dominance_changes(run_dir):
-    # Later the minus wave dominates and points along y (z_x=0), but the
-    # selected plus wave continues to point along x (alignment=1).
-    write_snapshot(run_dir, 0, plus=(4, 0, 1), minus=(1, 2, 0))
-    write_snapshot(run_dir, 1, plus=(1, 0, 1), minus=(4, 2, 0))
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_snapshots(run_dir, ["drho"], p)
-    assert run.branch == "plus"
-    np.testing.assert_allclose(run.alignment, [1, 1])
-    np.testing.assert_allclose(run.l_perp, [1, 1])
-    np.testing.assert_allclose(run.predicted["drho"], [0.05, 0.05])
-
-
-def test_selected_snapshot_field_and_stride(run_dir):
-    for index in range(3):
-        write_snapshot(run_dir, index, minus=(2, 1, 2), fields=["db_par"])
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_snapshots(run_dir, ["db_par"], p, stride=2)
+    # W- is stronger in the first row, so z- stays the pump for the whole run.
     assert run.branch == "minus"
-    assert set(run.measured) == set(run.predicted) == {"db_par"}
-    np.testing.assert_allclose(run.times, [0, 2])
-    np.testing.assert_allclose(run.predicted["db_par"], [0.08, 0.08])
+    assert run.source == "CSV: measured alignment"
+    assert "isotropic" not in capsys.readouterr().out
+    np.testing.assert_allclose(run.l_perp, [0.25, 0.2, np.nan], equal_nan=True)
+    np.testing.assert_allclose(run.alignment, [0.2, 0.4, 0])
+    # |F| = 0.2 for db_par; with no Alfvenic field the estimate is zero.
+    np.testing.assert_allclose(run.predicted["db_par"], [0.2 * 0.25 * 0.2, 0.2 * 0.2 * 0.4, 0])
+    # Pump z- RMS = 2 sqrt(W-) = 4, 2 and counter z+ RMS = 2, 6.
+    np.testing.assert_allclose(run.z_ratio, [0.5, 3, np.nan], equal_nan=True)
+    # chi_A = z_rms <k_perp> / (vA <k_par>) with vA = 2.
+    np.testing.assert_allclose(run.chi_a, [4, 2.5, np.nan], equal_nan=True)
+    # Eq. (73): l_perp |g| drho_rms / z_rms^2 with g = 4.
+    np.testing.assert_allclose(run.z_ratio_predicted, [0.0625, 0.2, np.nan], equal_nan=True)
 
 
-def test_zero_alfven_energy_has_zero_prediction(run_dir):
-    write_snapshot(run_dir, 0)
+def test_csv_branch_can_be_chosen(run_dir):
+    write_branch_csv(run_dir)
     p = projection.load_parameters(run_dir)
-    run = projection.read_from_snapshots(run_dir, FIELDS, p)
-    assert np.isnan(run.l_perp[0])
-    assert np.isnan(run.chi_a[0])
-    np.testing.assert_array_equal(run.alignment, [0])
-    for prediction in run.predicted.values():
-        np.testing.assert_array_equal(prediction, [0])
-    assert np.isnan(run.z_ratio).all()
-    assert np.isnan(run.z_ratio_predicted).all()
+    run = projection.read_from_csv(run_dir, ["db_par"], p, branch="plus")
+    assert run.branch == "plus"
+    np.testing.assert_allclose(run.alignment, [0.9, 0.9, 0])
+    np.testing.assert_allclose(run.l_perp, [0.5, 0.5, np.nan], equal_nan=True)
+    np.testing.assert_allclose(run.z_ratio, [2, 1 / 3, np.nan], equal_nan=True)
 
 
 @pytest.mark.parametrize("time_column", ["time", "t"])
-def test_csv_uses_isotropic_closure_and_selected_field(run_dir, time_column):
+def test_old_csv_falls_back_to_isotropic_alignment(run_dir, time_column, capsys):
     write_csv(run_dir, time_column)
     p = projection.load_parameters(run_dir)
     run = projection.read_from_csv(run_dir, ["db_par"], p)
-    assert run.branch is None
+    # Without energies the branch cannot be chosen; w_plus_kperp makes it plus.
+    assert run.branch == "plus"
+    assert "isotropy assumed" in run.source
+    assert "no w_plus_align column" in capsys.readouterr().out
     assert set(run.measured) == set(run.predicted) == {"db_par"}
     np.testing.assert_allclose(run.times, [0, 1])
     np.testing.assert_allclose(run.l_perp, [0.5, 0.25])
@@ -140,20 +116,11 @@ def test_csv_uses_isotropic_closure_and_selected_field(run_dir, time_column):
     assert np.isnan(run.z_ratio_predicted).all()
 
 
-@pytest.mark.parametrize("csv_flag", [[], ["--from-csv"]])
-def test_cli_saves_selected_field_with_csv_or_fallback(run_dir, csv_flag):
+def test_minus_branch_needs_its_own_columns(run_dir):
     write_csv(run_dir)
-    output = projection.main([str(run_dir), "--fields", "db_par", *csv_flag])
-    assert output == run_dir / "slaved_projection.png"
-    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-
-
-@pytest.mark.parametrize("stride", ["0", "-1"])
-def test_cli_rejects_nonpositive_stride(run_dir, stride, capsys):
-    with pytest.raises(SystemExit) as error:
-        projection.main([str(run_dir), "--stride", stride])
-    assert error.value.code == 2
-    assert "stride" in capsys.readouterr().err.lower()
+    p = projection.load_parameters(run_dir)
+    with pytest.raises(SystemExit, match="w_minus_kperp"):
+        projection.read_from_csv(run_dir, ["db_par"], p, branch="minus")
 
 
 def test_csv_measured_chi_and_title_average(run_dir, monkeypatch):
@@ -179,21 +146,6 @@ def test_csv_measured_chi_and_title_average(run_dir, monkeypatch):
     assert r"mean measured $\chi_A$ = n/a" in titles[-1]
 
 
-@pytest.mark.parametrize("branch", ["plus", "minus"])
-@pytest.mark.parametrize("gravity", [4.0, -4.0, 0.0])
-def test_eq73_ratio_uses_measured_density_and_opposite_wave(run_dir, branch, gravity):
-    other_branch = "minus" if branch == "plus" else "plus"
-    write_snapshot(run_dir, 0, **{branch: (3.0, 1, 2), other_branch: (1.5, 1, 2)})
-    path = run_dir / "input_copy.input"
-    path.write_text(path.read_text().replace("g = 4.0", f"g = {gravity}"), encoding="utf-8")
-    p = projection.load_parameters(run_dir)
-    # Density is still read for Eq. (73), even when only the db_par panel is selected.
-    run = projection.read_from_snapshots(run_dir, ["db_par"], p, branch=branch)
-    np.testing.assert_allclose(run.z_ratio, [0.5])
-    # Measured drho RMS is 2, pump RMS squared is 9*5/2, l_perp is 1/sqrt(5).
-    np.testing.assert_allclose(run.z_ratio_predicted, [2 * abs(gravity) / (22.5 * np.sqrt(5))])
-
-
 def test_eq73_csv_values_and_zero_pump(run_dir):
     with (run_dir / "scalar_diagnostics.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -205,14 +157,31 @@ def test_eq73_csv_values_and_zero_pump(run_dir):
     np.testing.assert_allclose(run.z_ratio_predicted, [0.25, 0.0625, np.nan], equal_nan=True)
 
 
+@pytest.mark.parametrize("branch, per_unit_gravity", [
+    ("plus", [1 / 8, 1 / 72]),
+    ("minus", [1 / 64, 1 / 20]),
+])
+@pytest.mark.parametrize("gravity", [4.0, -4.0, 0.0])
+def test_eq73_uses_abs_gravity_and_the_selected_pump(run_dir, branch, per_unit_gravity, gravity):
+    write_branch_csv(run_dir)
+    path = run_dir / "input_copy.input"
+    path.write_text(path.read_text().replace("g = 4.0", f"g = {gravity}"), encoding="utf-8")
+    p = projection.load_parameters(run_dir)
+    # Density is still read for Eq. (73), even when only the db_par panel is selected.
+    run = projection.read_from_csv(run_dir, ["db_par"], p, branch=branch)
+    # l_perp |g| drho_rms / (4 W_pump), undefined once the pump vanishes in the last row.
+    expected = [*(abs(gravity) * np.array(per_unit_gravity)), np.nan]
+    np.testing.assert_allclose(run.z_ratio_predicted, expected, equal_nan=True)
+
+
 @pytest.mark.parametrize("branch, ratio_label", [
     ("plus", r"z^-_{\rm rms}/z^+_{\rm rms}"),
     ("minus", r"z^+_{\rm rms}/z^-_{\rm rms}"),
 ])
 def test_eq73_adds_fourth_panel_with_correct_branch_label(run_dir, monkeypatch, branch, ratio_label):
-    write_snapshot(run_dir, 0, plus=(3, 1, 2), minus=(1.5, 1, 2))
+    write_branch_csv(run_dir)
     p = projection.load_parameters(run_dir)
-    run = projection.read_from_snapshots(run_dir, FIELDS, p, branch=branch)
+    run = projection.read_from_csv(run_dir, FIELDS, p, branch=branch)
 
     def check_figure(fig, *, output_path, show, plt):
         assert len(fig.axes) == 4
@@ -226,3 +195,107 @@ def test_eq73_adds_fourth_panel_with_correct_branch_label(run_dir, monkeypatch, 
 
     monkeypatch.setattr(projection, "finalize_figure", check_figure)
     projection.plot_series(run_dir, run, FIELDS, p, run_dir / "unused.png")
+
+
+def test_cli_saves_selected_field(run_dir):
+    write_csv(run_dir)
+    output = projection.main([str(run_dir), "--fields", "db_par"])
+    assert output == run_dir / "slaved_projection.png"
+    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_cli_branch_is_used_and_shown(run_dir, monkeypatch):
+    write_branch_csv(run_dir)
+    titles = []
+
+    def capture_title(fig, *, output_path, show, plt):
+        titles.append(fig._suptitle.get_text())
+        plt.close(fig)
+
+    monkeypatch.setattr(projection, "finalize_figure", capture_title)
+    projection.main([str(run_dir), "--fields", "db_par", "--branch", "plus"])
+    assert "CSV: measured alignment; plus branch" in titles[-1]
+
+
+def test_single_mode_solver_run_gives_the_analytic_estimate(tmp_path):
+    """Run the solver on one Alfven mode, then check the saved columns and the estimate.
+
+    A single Fourier mode stays single: the nonlinear brackets of a mode with
+    itself vanish and the background-gradient terms are linear. With k = (1, 2, 1)
+    every saved row must have <k_perp> = sqrt(5), <k_par> = 1 and
+    rms(z_x)/z_rms = |k_y|/|k_perp| = 2/sqrt(5), so Eq. (47) is 0.4 |F| throughout.
+    """
+    from rmhdgpu.run import main as run_main
+
+    input_path = tmp_path / "case.input"
+    input_path.write_text(
+        """
+title = "Single-mode slaving check"
+output_dir = "outputs"
+
+[equations]
+type = "inhomogeneous_rmhd_rho"
+
+[grid]
+Nx = 12
+Ny = 12
+Nz = 12
+
+[time]
+tmax = 0.02
+dt_init = 0.005
+dt_max = 0.005
+use_variable_dt = false
+
+[output]
+t_out_scal = 0.01
+t_out_spec = 0.0
+t_out_full = 0.0
+
+[backend]
+backend = "numpy"
+
+# K_b0 = g/vA^2 - chi*K_p0/gamma = 0.03, so all three fields are driven.
+[physics]
+vA = 1.0
+cs2_over_vA2 = 0.1
+K_rho0 = 0.65
+g = 0.06
+K_p0 = 0.5
+
+# This initial condition's "minus" branch sets phi = -psi, which is a pure z+
+# wave in the Elsasser convention z+ = zhat x grad_perp(phi - psi).
+[initial_condition]
+type = "alfven_mode"
+
+[initial_condition.parameters]
+k_indices = [1, 2, 1]
+amplitude = 0.1
+branch = "minus"
+
+[runtime]
+progress_output_every = 100
+""".strip() + "\n",
+        encoding="utf-8",
+    )
+    run_main([str(input_path)])
+    run_dir = tmp_path / "outputs"
+
+    with (run_dir / "scalar_diagnostics.csv").open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 3
+    for row in rows:
+        assert float(row["w_plus_kperp"]) == pytest.approx(np.sqrt(5), rel=1.0e-12)
+        assert float(row["w_plus_kprl"]) == pytest.approx(1.0, rel=1.0e-12)
+        assert float(row["w_plus_align"]) == pytest.approx(2 / np.sqrt(5), rel=1.0e-12)
+
+    p = projection.load_parameters(run_dir)
+    run = projection.read_from_csv(run_dir, FIELDS, p)
+    assert run.branch == "plus"
+    assert run.source == "CSV: measured alignment"
+    np.testing.assert_allclose(run.l_perp, 1 / np.sqrt(5), rtol=1.0e-12)
+    np.testing.assert_allclose(run.alignment, 2 / np.sqrt(5), rtol=1.0e-12)
+    forcing = projection.forcings(p)
+    assert all(forcing[name] != 0.0 for name in FIELDS)
+    for name in FIELDS:
+        np.testing.assert_allclose(run.predicted[name], 0.4 * abs(forcing[name]), rtol=1.0e-12)
