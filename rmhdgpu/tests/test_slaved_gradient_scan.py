@@ -251,6 +251,65 @@ def test_fit_line_needs_two_different_drives():
     assert scan.fit_line([0.5], [1.0]) is None
 
 
+def test_slaved_mean_matches_projection_over_the_same_tail_for_every_field(tmp_path):
+    run = write_run(tmp_path / "time_varying", physics={
+        "vA": 2.0, "cs2_over_vA2": 1.0, "g": 4.0, "K_p0": 5.0, "K_rho0": 1.5,
+    })
+    write_scalar_csv(run, ["time", "w_plus", "w_minus", "w_minus_kperp", "w_minus_align",
+                           "drho_rms", "du_par_rms", "db_par_rms"],
+                     [[t, 1.0 if t == 0 else 100.0, 9.0, 1.0 + t, 0.1 + 0.05 * t,
+                       4.0, 8.0, 3.0] for t in range(11)])
+    parameters = projection.load_parameters(run)
+    series = projection.read_from_csv(run, FIELDS, parameters)
+    points = scan.read_run(run, FIELDS)
+    window = series.times >= 6.0
+    for point in points:
+        name = point["field"]
+        assert point["slaved_rms"] == pytest.approx(series.predicted[name][window].mean())
+        assert point["saturated_rms"] == pytest.approx(series.measured[name][window].mean())
+        assert point["pump_branch"] == "minus"  # Selected in the first row, not the tail.
+        assert point["alignment_source"] == "measured"
+        assert (point["t_start"], point["t_end"], point["n_samples"]) == (6.0, 10.0, 5)
+    assert [point["saturated_rms"] for point in points] == pytest.approx([4.0, 4.0, 6.0])
+
+
+def test_nonfinite_slaved_tail_keeps_the_measurement_without_using_earlier_estimates(tmp_path):
+    run = write_run(tmp_path / "missing_slaved_tail", measured=3.0)
+    write_scalar_csv(run, ["time", "w_plus_kperp", "w_plus_align", "drho_rms"],
+                     [[t, 2.0, 0.5 if t < 6 else np.nan, 3.0] for t in range(11)])
+    point = scan.read_run(run, ["drho"])[0]
+    assert point["saturated_rms"] == pytest.approx(3.0)
+    assert np.isnan(point["slaved_rms"])
+    assert (point["t_start"], point["t_end"], point["n_samples"]) == (6.0, 10.0, 5)
+
+
+def test_measured_and_slaved_fits_select_valid_points_independently(tmp_path, monkeypatch):
+    # The high-drive measurement changes the slope from 1 to 1.9. Its estimate is missing,
+    # so coupling the two masks would silently fit the wrong measured exponent.
+    points = [{
+        "run_dir": f"run_{index}", "field": "drho", "forcing": -drive,
+        "saturated_rms": measured, "slaved_rms": slaved,
+        "pump_branch": "plus", "alignment_source": "measured",
+        "t_start": 6.0, "t_end": 10.0, "n_samples": 5,
+    } for index, (drive, measured, slaved) in enumerate(
+        [(1.0, 1.0, 4.0), (2.0, 2.0, 2.0), (4.0, 4.0, 1.0), (8.0, 64.0, np.nan)]
+    )]
+    captured = capture_panels(monkeypatch)
+    scan.plot_scan(points, ["drho"], tmp_path / "unused.png")
+    panel = captured[0]
+    measured_x = np.log10([1.0, 8.0])
+    slaved_x = np.log10([1.0, 4.0])
+    np.testing.assert_allclose(panel["lines"]["Measured fit: slope 1.90"],
+                               np.column_stack([measured_x, 1.9 * measured_x - 0.6 * np.log10(2)]))
+    np.testing.assert_allclose(panel["lines"]["Slaved fit: slope -1.00"],
+                               np.column_stack([slaved_x, -slaved_x + np.log10(4)]), atol=1e-12)
+    assert len(panel["lines"]) == 2  # No additional fixed-slope reference line.
+    assert len(panel["offsets"][scan.MEASURED_LABEL]) == 4
+    assert len(panel["offsets"][scan.SLAVED_LABEL]) == 3
+    assert panel["legend"] == [scan.MEASURED_LABEL, "Measured fit: slope 1.90",
+                               scan.SLAVED_LABEL, "Slaved fit: slope -1.00"]
+
+
 def test_cli_defaults_to_all_fields_and_writes_png_and_simple_summary(tmp_path):
     runs = [write_run(tmp_path / f"run_{index}", physics={"K_rho0": value}, measured=value)
             for index, value in enumerate([2.0, 7.0, 10.5])]

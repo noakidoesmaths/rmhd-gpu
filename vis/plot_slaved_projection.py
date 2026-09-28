@@ -26,6 +26,13 @@ For the plus pump these are z^-/z^+ and (l_perp/(z^+)**2) * |-g delta rho/rho_0|
 Both curves are dimensionless and undefined when the pump amplitude is zero.
 There is no curvature term in this model and no extra isotropy factor here.
 
+The final panel plots z^+_rms/vA and z^-_rms/vA against time, where
+z^{pm}_rms = 2*sqrt(W^{pm}). Dividing by vA keeps this dimensionless and
+consistent with the other panels. Unlike the CCR ratio, which normalises the
+pump amplitude away, this panel shows whether the pump itself is still
+decaying or has reached a quasi-steady amplitude, which matters for judging
+whether a time window is safe to treat as steady state.
+
 Examples (also usable as main([...]) in Spyder):
     python vis/plot_slaved_projection.py RUN_DIRECTORY
     python vis/plot_slaved_projection.py RUN_DIRECTORY --fields drho db_par --show
@@ -89,6 +96,8 @@ class RunSeries:
     chi_a: np.ndarray  # nonlinear frequency / Alfven frequency
     z_ratio: np.ndarray  # Opposite-branch RMS / pump RMS (dimensionless)
     z_ratio_predicted: np.ndarray  # Eq. (73) / pump RMS, using measured density
+    z_plus: np.ndarray  # z^+_rms / vA (dimensionless); NaN where w_plus is unavailable
+    z_minus: np.ndarray  # z^-_rms / vA (dimensionless); NaN where w_minus is unavailable
     measured: dict[str, np.ndarray]
     predicted: dict[str, np.ndarray]
     source: str  # Whether the alignment was measured or assumed isotropic
@@ -168,11 +177,21 @@ def read_from_csv(run_dir, fields, p, branch=None):
         np.divide(omega_nl, omega_a, out=chi_a, where=omega_a > 0.0)
     z_ratio = np.full_like(kperp, np.nan)
     z_ratio_predicted = np.full_like(kperp, np.nan)
+    z_plus = np.full_like(kperp, np.nan)
+    z_minus = np.full_like(kperp, np.nan)
     if pump in columns:
         z_pump = 2.0 * np.sqrt(np.maximum(columns[pump], 0.0))
+        if branch == "plus":
+            z_plus = z_pump / p.vA
+        else:
+            z_minus = z_pump / p.vA
         if counter in columns:
             z_counter_rms = 2.0 * np.sqrt(np.maximum(columns[counter], 0.0))
             np.divide(z_counter_rms, z_pump, out=z_ratio, where=z_pump > 0.0)
+            if branch == "plus":
+                z_minus = z_counter_rms / p.vA
+            else:
+                z_plus = z_counter_rms / p.vA
         if "drho_rms" in columns:
             # Divide Eq. (73) by the pump RMS to get the dimensionless wave ratio.
             np.divide(l_perp * abs(p.g) * columns["drho_rms"], z_pump**2,
@@ -182,6 +201,7 @@ def read_from_csv(run_dir, fields, p, branch=None):
         times=columns[time_key], l_perp=l_perp, alignment=alignment,
         chi_a=chi_a,
         z_ratio=z_ratio, z_ratio_predicted=z_ratio_predicted,
+        z_plus=z_plus, z_minus=z_minus,
         measured={name: columns[f"{name}_rms"] / divisor[name] for name in fields},
         predicted={name: abs(forcing[name]) * projected_length for name in fields},
         source=source, branch=branch,
@@ -192,7 +212,7 @@ def plot_series(run_dir, run, fields, p, output_path, show=False):
     """One panel per compressive field, followed by the dimensionless wave ratio."""
     plt = import_pyplot(show=show)
     forcing = forcings(p)
-    panel_count = len(fields) + 1
+    panel_count = len(fields) + 2
     rows = (panel_count + 1) // 2
     fig, axes = plt.subplots(
         rows, 2, figsize=(11.6, 5.0 * rows),
@@ -236,6 +256,18 @@ def plot_series(run_dir, run, fields, p, output_path, show=False):
                 ha="center", va="center", fontsize=8, wrap=True)
     ax.grid(alpha=0.3)
     ax.legend(fontsize=9)
+
+    ax = axes.ravel()[len(fields) + 1]
+    ax.plot(run.times, run.z_plus, color="tab:red", lw=2, label=r"$z^+_{\rm rms}/v_A$")
+    ax.plot(run.times, run.z_minus, color="tab:cyan", lw=2, label=r"$z^-_{\rm rms}/v_A$")
+    ax.set(xlabel="Time", ylabel=r"$z^\pm_{\rm rms}/v_A$ (dimensionless)",
+           title="Elsasser amplitudes: pump and counter-propagating wave")
+    if not np.isfinite(run.z_plus).any() and not np.isfinite(run.z_minus).any():
+        ax.text(0.5, 0.5, "Unavailable: missing w_plus/w_minus energy columns",
+                transform=ax.transAxes, ha="center", va="center", fontsize=8, wrap=True)
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=9)
+
     for ax in axes.ravel()[panel_count:]:
         ax.set_visible(False)
 
