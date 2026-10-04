@@ -1,42 +1,44 @@
-"""Compare compressive RMS and the reflected-wave ratio with Eqs. (47) and (73).
+"""Compare measured compressive and reflected-wave amplitudes with the slaved estimates.
 
-Based on Squire et al., arXiv:2607.08036, Eqs. (46)-(48) and (73).
-For inhomogeneous_rmhd_rho, all background gradients point along x:
+Squire et al., arXiv:2607.08036, Eqs. (46)-(48) and (73), for
+inhomogeneous_rmhd_rho runs, whose background gradients all point along x.
+Everything is read from scalar_diagnostics.csv and input_copy.input, so no
+full-field snapshots are needed.
 
-    predicted_rms = abs(F) * l_perp * rms(z_x) / z_rms
+Elsasser convention, as in the paper and the solver:
 
-Here z = zhat cross grad_perp(phi - sign*psi), z_rms = 2*sqrt(W), and
-l_perp = 1/<k_perp>. The solver calculates these at every scalar-output time.
-This is a mixing-length estimate, not an exact pointwise solution.
+    z^± = delta u_perp ∓ delta B_perp/sqrt(4 pi rho_0)
 
-Everything is read from scalar_diagnostics.csv, so no full-field snapshots are
-needed. The alignment rms(z_x)/z_rms comes from the w_plus_align / w_minus_align
-columns. CSVs written before those columns existed fall back to the isotropic
-value 1/sqrt(2) (Eq. 48) with a warning. That can be off by a large factor when
-the flow is anisotropic in the perpendicular plane, so re-run such cases.
-The pump is the stronger Elsasser wave in the first row unless --branch is given.
-The title averages measured chi_A = z_rms*<k_perp>/(vA*<k_parallel>) over
-the plotted times, omitting undefined values.
+z+ is the wave the initial condition launches and z- the wave it reflects
+into. The solver saves W^± = <|z^±|^2>/4, so z±_rms = 2 sqrt(W±). At each saved
+time, with every scale taken from z+:
 
-The extra CCR panel divides both sides of Eq. (73) by the pump RMS amplitude:
-    z_ratio = sqrt(W_counter/W_pump)
-    z_ratio_predicted = (l_perp/z_pump_rms**2) * abs(g) * rms(drho)
-Here drho is the measured delta rho/rho_0, and the selected branch is the pump.
-For the plus pump these are z^-/z^+ and (l_perp/(z^+)**2) * |-g delta rho/rho_0|_rms.
-Both curves are dimensionless and undefined when the pump amplitude is zero.
-There is no curvature term in this model and no extra isotropy factor here.
+    l_perp    = 1/<k_perp>                          outer scale
+    alignment = rms(z+_x)/z+_rms                    share of z+ along x
+    chi_A     = z+_rms <k_perp> / (vA <k_par>)      nonlinear / Alfven frequency
 
-The final panel plots z^+_rms/vA and z^-_rms/vA against time, where
-z^{pm}_rms = 2*sqrt(W^{pm}). Dividing by vA keeps this dimensionless and
-consistent with the other panels. Unlike the CCR ratio, which normalises the
-pump amplitude away, this panel shows whether the pump itself is still
-decaying or has reached a quasi-steady amplitude, which matters for judging
-whether a time window is safe to treat as steady state.
+    Eq. (47): rms(f)          ~ |F_f| l_perp alignment        f = drho, du_par, db_par
+    Eq. (73): z-_rms / z+_rms ~ l_perp |g| rms(drho) / z+_rms^2
+
+F_f is the background drive of each field (Eq. 46), from
+rmhdgpu.diagnostics.compressive_channels.background_drives. Both estimates are
+mixing-length arguments, so expect agreement up to an O(1) factor, not a
+pointwise match. Eq. (73) is divided by z+_rms so that both of its curves are
+dimensionless. There is no curvature term in this model.
+
+Panels, three per row: one per compressive field (measured RMS against
+Eq. 47), then z-/z+ against Eq. (73), then z+_rms/vA and z-_rms/vA, then
+delta u_perp/vA and delta B_perp/B_0. The last two show whether z+ is still
+decaying, which matters when deciding whether a time window can be treated as
+steady state.
+
+A column that an older CSV lacks is read as NaN, so its curve is left empty and
+the panel names the curve that has no data. For example, CSVs written before
+2026-09-23 have no w_plus_align column, so they plot without the Eq. (47) line.
 
 Examples (also usable as main([...]) in Spyder):
     python vis/plot_slaved_projection.py RUN_DIRECTORY
     python vis/plot_slaved_projection.py RUN_DIRECTORY --fields drho db_par --show
-    python vis/plot_slaved_projection.py RUN_DIRECTORY --branch minus
 """
 
 from __future__ import annotations
@@ -57,6 +59,7 @@ if __package__ in {None, ""}:
 
 import numpy as np
 
+from rmhdgpu.diagnostics.compressive_channels import background_drives, slaved_field_units
 from rmhdgpu.equations.rmhd_by_nokia_rho import derived_parameters
 from vis._matplotlib import finalize_figure, import_pyplot
 
@@ -68,43 +71,32 @@ LABELS = {
     "db_par": r"(v_A^2/v_S^2)\,\delta B_\parallel/B_0",
 }
 COLORS = {"drho": "tab:blue", "du_par": "tab:green", "db_par": "tab:orange"}
-ISOTROPIC_ALIGNMENT = 1.0 / np.sqrt(2.0)
-
-
-def forcings(p):
-    """The x components of Eq. (46), for straight field and no mean flow."""
-    return {
-        # Equivalent to -N_sq/g, but also defined when g = 0.
-        "drho": p.g / (p.vA**2 * (1.0 + p.chi)) - p.K_rho0,
-        "du_par": -p.K_b0,
-        "db_par": -p.K_b0 + p.K_p0 / p.gamma,
-    }
-
-
-def measured_divisors(p):
-    """Convert saved fields to Eq. (47) units; alpha = vS^2/vA^2."""
-    return {"drho": 1.0, "du_par": p.vA, "db_par": p.alpha}
 
 
 @dataclass
 class RunSeries:
-    """Arrays ready to plot, with one value per saved time."""
+    """Curves to plot, one value per saved time. NaN marks values the CSV cannot give."""
 
     times: np.ndarray
-    l_perp: np.ndarray
-    alignment: np.ndarray  # rms(z_x) / z_rms
-    chi_a: np.ndarray  # nonlinear frequency / Alfven frequency
-    z_ratio: np.ndarray  # Opposite-branch RMS / pump RMS (dimensionless)
-    z_ratio_predicted: np.ndarray  # Eq. (73) / pump RMS, using measured density
-    z_plus: np.ndarray  # z^+_rms / vA (dimensionless); NaN where w_plus is unavailable
-    z_minus: np.ndarray  # z^-_rms / vA (dimensionless); NaN where w_minus is unavailable
-    measured: dict[str, np.ndarray]
-    predicted: dict[str, np.ndarray]
-    source: str  # Whether the alignment was measured or assumed isotropic
-    branch: str  # The pump: "plus" or "minus"
+    z_plus: np.ndarray  # z+_rms / vA
+    z_minus: np.ndarray  # z-_rms / vA
+    u_perp: np.ndarray  # rms(delta u_perp) / vA
+    b_perp: np.ndarray  # rms(delta B_perp) / B_0
+    l_perp: np.ndarray  # 1/<k_perp> of z+
+    alignment: np.ndarray  # rms(z+_x) / z+_rms
+    chi_a: np.ndarray  # chi_A of z+
+    z_ratio: np.ndarray  # measured z-_rms / z+_rms
+    z_ratio_predicted: np.ndarray  # Eq. (73)
+    measured: dict[str, np.ndarray]  # compressive RMS in Eq. (47) units
+    predicted: dict[str, np.ndarray]  # Eq. (47) estimate for each field
 
+
+# ---------------------------------------------------------------------------
+# Reading a run
+# ---------------------------------------------------------------------------
 
 def load_parameters(run_dir):
+    """Physics scalars from the run's saved input, via the solver's own derived_parameters."""
     input_path = run_dir / "input_copy.input"
     if not input_path.is_file():
         raise SystemExit(f"Missing {input_path}; the estimate needs the [physics] block.")
@@ -116,15 +108,7 @@ def load_parameters(run_dir):
     return derived_parameters(physics)
 
 
-def read_from_csv(run_dir, fields, p, branch=None):
-    """Read one run's scalar_diagnostics.csv into arrays ready to plot.
-
-    Each row holds the field RMS, W^±, <k_perp>, <k_parallel> and the
-    alignment rms(z_x)/z_rms (w_plus_align / w_minus_align) at one
-    scalar-output time. A CSV written before the alignment columns existed
-    falls back to the Eq. (48) value 1/sqrt(2). That fallback can be off by a
-    large factor in anisotropic runs.
-    """
+def read_csv_rows(run_dir):
     csv_path = run_dir / "scalar_diagnostics.csv"
     if not csv_path.is_file():
         raise SystemExit(f"Missing {csv_path}.")
@@ -132,178 +116,200 @@ def read_from_csv(run_dir, fields, p, branch=None):
         rows = list(csv.DictReader(handle))
     if not rows:
         raise SystemExit(f"{csv_path} contains no data rows.")
-    first_row = rows[0]
-    time_key = "time" if "time" in first_row else "t"
+    return csv_path, rows
 
-    # Auto picks the stronger branch in the FIRST row and keeps it for the whole run.
-    # A CSV without both energies can only be read on the plus branch.
-    if branch is None:
-        branch = "plus"
-        if "w_plus" in first_row and "w_minus" in first_row:
-            if float(first_row["w_minus"]) > float(first_row["w_plus"]):
-                branch = "minus"
-    pump, counter = ("w_plus", "w_minus") if branch == "plus" else ("w_minus", "w_plus")
 
-    required = [time_key, f"{pump}_kperp"] + [f"{name}_rms" for name in fields]
-    missing = [name for name in required if name not in first_row]
+def csv_column(rows, name):
+    """One column as floats, or all NaN if the CSV predates it.
+
+    NaN propagates through every formula in read_from_csv, so a missing
+    diagnostic just leaves its curve empty and needs no special case.
+    """
+    if name not in rows[0]:
+        return np.full(len(rows), np.nan)
+    return np.array([float(row[name]) for row in rows])
+
+
+def safe_divide(numerator, denominator):
+    """numerator / denominator, with NaN wherever the denominator is not positive."""
+    numerator, denominator = np.asarray(numerator, float), np.asarray(denominator, float)
+    out = np.full(np.broadcast(numerator, denominator).shape, np.nan)
+    return np.divide(numerator, denominator, out=out, where=denominator > 0.0)
+
+
+def read_from_csv(run_dir, fields, p):
+    """Read one run's scalar_diagnostics.csv and compute every plotted curve."""
+    csv_path, rows = read_csv_rows(run_dir)
+    time_key = "time" if "time" in rows[0] else "t"
+    missing = [name for name in [time_key] + [f"{name}_rms" for name in fields] if name not in rows[0]]
     if missing:
-        raise SystemExit(f"{csv_path} is missing {missing}; it may predate these diagnostics, "
-                         "so re-run the case with the current solver.")
-    # Eq. (73) needs drho_rms even when the density panel is not selected.
-    optional = [name for name in (pump, counter, f"{pump}_kprl", f"{pump}_align", "drho_rms")
-                if name in first_row and name not in required]
-    columns = {name: np.array([float(row[name]) for row in rows]) for name in required + optional}
+        raise SystemExit(f"{csv_path} is missing {missing}; is this an inhomogeneous_rmhd_rho run?")
 
-    kperp = columns[f"{pump}_kperp"]
-    l_perp = np.divide(1.0, kperp, out=np.full_like(kperp, np.nan), where=np.abs(kperp) > 0.0)
-    if f"{pump}_align" in columns:
-        alignment = columns[f"{pump}_align"]
-        source = "CSV: measured alignment"
-    else:
-        print(f"{csv_path.name} has no {pump}_align column (written before it was added). "
-              "Assuming isotropic alignment 1/sqrt(2), Eq. (48). The Eq. (47) estimate can "
-              "then be off by a large factor; re-run the case to save the measured value.")
-        alignment = np.full_like(kperp, ISOTROPIC_ALIGNMENT)
-        source = "CSV: Eq. (48) isotropy assumed"
-    # RMS[(l_perp/z_rms) * z_x * F] factorises because F is constant. The saved alignment
-    # is zero for an empty field, so the prediction is zero there although l_perp is undefined.
+    # Elsasser amplitudes, z±_rms = 2 sqrt(W±).
+    z_plus = 2.0 * np.sqrt(csv_column(rows, "w_plus"))
+    z_minus = 2.0 * np.sqrt(csv_column(rows, "w_minus"))
+    if z_minus[0] > z_plus[0]:
+        print(f"{csv_path.name}: W- > W+ at the first saved time. The estimates assume "
+              "z+ = u_perp - b_perp is the driving wave, so they do not describe this run.")
+
+    # Outer scale, alignment with x, and chi_A, all of z+.
+    kperp = csv_column(rows, "w_plus_kperp")
+    l_perp = safe_divide(1.0, kperp)
+    alignment = csv_column(rows, "w_plus_align")
+    chi_a = safe_divide(z_plus * kperp, p.vA * csv_column(rows, "w_plus_kprl"))
+
+    # Eq. (47): rms(f) ~ |F_f| l_perp alignment. A fluid element displaced by
+    # ~ (l_perp/z+) z+_x along x picks up delta f ~ F_f * displacement. An empty
+    # z+ is saved with alignment 0, so its estimate is 0 although l_perp is undefined.
+    drives, units = background_drives(p), slaved_field_units(p)
     projected_length = np.where(alignment == 0.0, 0.0, l_perp * alignment)
+    measured = {name: csv_column(rows, f"{name}_rms") / units[name] for name in fields}
+    predicted = {name: abs(drives[name]) * projected_length for name in fields}
 
-    # Older CSVs can still be plotted when the chi_A diagnostics are absent.
-    chi_a = np.full_like(kperp, np.nan)
-    if pump in columns and f"{pump}_kprl" in columns:
-        omega_nl = 2.0 * np.sqrt(np.maximum(columns[pump], 0.0)) * kperp
-        omega_a = p.vA * columns[f"{pump}_kprl"]
-        np.divide(omega_nl, omega_a, out=chi_a, where=omega_a > 0.0)
-    z_ratio = np.full_like(kperp, np.nan)
-    z_ratio_predicted = np.full_like(kperp, np.nan)
-    z_plus = np.full_like(kperp, np.nan)
-    z_minus = np.full_like(kperp, np.nan)
-    if pump in columns:
-        z_pump = 2.0 * np.sqrt(np.maximum(columns[pump], 0.0))
-        if branch == "plus":
-            z_plus = z_pump / p.vA
-        else:
-            z_minus = z_pump / p.vA
-        if counter in columns:
-            z_counter_rms = 2.0 * np.sqrt(np.maximum(columns[counter], 0.0))
-            np.divide(z_counter_rms, z_pump, out=z_ratio, where=z_pump > 0.0)
-            if branch == "plus":
-                z_minus = z_counter_rms / p.vA
-            else:
-                z_plus = z_counter_rms / p.vA
-        if "drho_rms" in columns:
-            # Divide Eq. (73) by the pump RMS to get the dimensionless wave ratio.
-            np.divide(l_perp * abs(p.g) * columns["drho_rms"], z_pump**2,
-                      out=z_ratio_predicted, where=z_pump > 0.0)
-    forcing, divisor = forcings(p), measured_divisors(p)
+    # Eq. (73): buoyancy |g| drho acting for one nonlinear time l_perp/z+ drives
+    # z- ~ (l_perp/z+) |g| rms(drho); divide by z+ for a dimensionless ratio.
+    # drho_rms is read even when the density panel is not shown.
+    z_ratio = safe_divide(z_minus, z_plus)
+    z_ratio_predicted = safe_divide(l_perp * abs(p.g) * csv_column(rows, "drho_rms"), z_plus**2)
+
     return RunSeries(
-        times=columns[time_key], l_perp=l_perp, alignment=alignment,
+        times=csv_column(rows, time_key),
+        z_plus=z_plus / p.vA,
+        z_minus=z_minus / p.vA,
+        u_perp=csv_column(rows, "u_perp_rms") / p.vA,
+        b_perp=csv_column(rows, "b_perp_rms") / p.vA,
+        l_perp=l_perp,
+        alignment=alignment,
         chi_a=chi_a,
-        z_ratio=z_ratio, z_ratio_predicted=z_ratio_predicted,
-        z_plus=z_plus, z_minus=z_minus,
-        measured={name: columns[f"{name}_rms"] / divisor[name] for name in fields},
-        predicted={name: abs(forcing[name]) * projected_length for name in fields},
-        source=source, branch=branch,
+        z_ratio=z_ratio,
+        z_ratio_predicted=z_ratio_predicted,
+        measured=measured,
+        predicted=predicted,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
+
+def plot_compressive_panel(ax, run, name, drive):
+    """Measured RMS of one compressive field against its Eq. (47) estimate."""
+    ax.plot(run.times, run.measured[name], lw=2, color=COLORS[name], label="Measured RMS")
+    if drive == 0.0:
+        ax.axhline(0.0, color="black", ls="--", lw=1.6, label="Slaved estimate: zero drive")
+    else:
+        ax.plot(run.times, run.predicted[name], "k--", lw=1.6, label="Slaved estimate (Eq. 47)")
+    ax.set(xlabel="Time", ylabel=rf"RMS of ${LABELS[name]}$",
+           title=rf"Plot of measured and predicted ${LABELS[name]}$" + "\nagainst time")
+
+
+def plot_reflection_panel(ax, run):
+    """Measured z-/z+ against the Eq. (73) estimate."""
+    ratio = r"z^-_{\rm rms}/z^+_{\rm rms}"
+    ax.plot(run.times, run.z_ratio, color="tab:purple", lw=2, label=rf"Measured ${ratio}$")
+    ax.plot(run.times, run.z_ratio_predicted, "k--", lw=1.6,
+            label=r"$(\ell_\perp/(z^+_{\rm rms})^2)\,|-g\,\delta\rho/\rho_0|_{\rm rms}$")
+    ax.set(xlabel="Time", ylabel="RMS amplitude ratio (dimensionless)",
+           title=rf"${ratio}$: measured and estimated")
+
+
+def plot_elsasser_panel(ax, run):
+    """z+_rms/vA and z-_rms/vA against time."""
+    ax.plot(run.times, run.z_plus, color="tab:red", lw=2, label=r"$z^+_{\rm rms}/v_A$")
+    ax.plot(run.times, run.z_minus, color="tab:cyan", lw=2, label=r"$z^-_{\rm rms}/v_A$")
+    ax.set(xlabel="Time", ylabel=r"$z^\pm_{\rm rms}/v_A$ (dimensionless)",
+           title="Elsasser amplitudes: launched and reflected wave")
+
+
+def plot_perp_amplitude_panel(ax, run):
+    """rms(delta u_perp)/vA and rms(delta B_perp)/B_0 against time."""
+    ax.plot(run.times, run.u_perp, color="tab:olive", lw=2,
+            label=r"$\delta u_{\perp,\rm rms}/v_A$")
+    # Dashed, because the two overlap in a nearly pure z+ run, where u_perp = -b_perp.
+    ax.plot(run.times, run.b_perp, color="tab:brown", lw=2, ls="--",
+            label=r"$\delta B_{\perp,\rm rms}/B_0$")
+    ax.set(xlabel="Time", ylabel="RMS amplitude (dimensionless)",
+           title="Perpendicular velocity and magnetic field")
+
+
+def note_missing_curves(ax):
+    """Name the curves with no data, usually because an older CSV lacks their columns."""
+    missing = [line.get_label() for line in ax.lines if not np.isfinite(line.get_ydata()).any()]
+    if missing:
+        ax.text(0.5, 0.5, "No data in this CSV for:\n" + "\n".join(missing),
+                transform=ax.transAxes, ha="center", va="center", fontsize=8, wrap=True,
+                bbox=dict(facecolor="white", edgecolor="0.7", alpha=0.9))
+
+
+def finite_mean(values, fmt):
+    """Mean of the finite values, formatted, or "n/a" if there are none."""
+    finite = values[np.isfinite(values)]
+    return format(finite.mean(), fmt) if finite.size else "n/a"
+
+
+def figure_title(run_dir, run, p):
+    return (
+        f"{run_dir.name}: slaved amplitudes | "
+        rf"$g$ = {p.g:.4g}, $\chi$ = {p.chi:g}, $K_\rho$ = {p.K_rho0:g}" + "\n"
+        rf"mean RMS$(z^+_x)/z^+_{{\rm rms}}$ = {finite_mean(run.alignment, '.3f')} "
+        rf"(isotropic: {1.0 / np.sqrt(2.0):.3f}) | "
+        rf"mean measured $\chi_A$ = {finite_mean(run.chi_a, '.3g')}"
     )
 
 
 def plot_series(run_dir, run, fields, p, output_path, show=False):
-    """One panel per compressive field, followed by the dimensionless wave ratio."""
+    """Compressive panels, then the Eq. (73) ratio, z+/z- and u_perp/b_perp, three per row."""
     plt = import_pyplot(show=show)
-    forcing = forcings(p)
-    panel_count = len(fields) + 2
-    rows = (panel_count + 1) // 2
+    panel_count = len(fields) + 3
+    rows = int(np.ceil(panel_count / 3))
     fig, axes = plt.subplots(
-        rows, 2, figsize=(11.6, 5.0 * rows),
+        rows, 3, figsize=(17.0, 5.0 * rows),
         constrained_layout=True, squeeze=False,
     )
-    for ax, name in zip(axes.ravel(), fields):
-        measured, predicted = run.measured[name], run.predicted[name]
-        ax.plot(run.times, measured, lw=2, color=COLORS[name], label="Measured RMS")
-        if forcing[name] == 0.0:
-            ax.axhline(0.0, color="black", ls="--", lw=1.6, label="Slaved estimate: zero drive")
-            summary = "No background-gradient drive"
-        else:
-            ax.plot(run.times, predicted, "k--", lw=1.6, label="Slaved estimate (Eq. 47)")
-            # ratio = np.divide(measured, predicted, out=np.full_like(measured, np.nan), where=predicted != 0)
-            # valid = ratio[np.isfinite(ratio)]
-            # mean_ratio = float(valid.mean()) if valid.size else np.nan
-            # summary = f"Mean measured / estimate = {mean_ratio:.3g}"
-        ax.set(xlabel="Time", ylabel=rf"RMS of ${LABELS[name]}$",
-               title=rf"Plot of measured and predicted ${LABELS[name]}$" + "\nagainst time")
+    axes = axes.ravel()
+
+    drives = background_drives(p)
+    for ax, name in zip(axes, fields):
+        plot_compressive_panel(ax, run, name, drives[name])
+    plot_reflection_panel(axes[len(fields)], run)
+    plot_elsasser_panel(axes[len(fields) + 1], run)
+    plot_perp_amplitude_panel(axes[len(fields) + 2], run)
+
+    for ax in axes[:panel_count]:
+        note_missing_curves(ax)
+        # No additive offset: a nearly flat curve (e.g. 1.732 +- 1e-5) would otherwise get
+        # tiny tick labels plus an easily missed "+1.732", which looks like a tiny amplitude.
+        ax.ticklabel_format(axis="y", useOffset=False)
         ax.grid(alpha=0.3)
         ax.legend(fontsize=9)
-
-    ax = axes.ravel()[len(fields)]
-    # The paper calls the pump z+; swap the labels when z- is the pump.
-    pump_label = r"z^-" if run.branch == "minus" else r"z^+"
-    counter_label = r"z^+" if run.branch == "minus" else r"z^-"
-    ratio_label = rf"{counter_label}_{{\rm rms}}/{pump_label}_{{\rm rms}}"
-    ax.plot(run.times, run.z_ratio, color="tab:purple", lw=2,
-            label=rf"Measured ${ratio_label}$")
-    ax.plot(run.times, run.z_ratio_predicted, "k--", lw=1.6,
-            label=rf"$(\ell_\perp/({pump_label}_{{\rm rms}})^2)\,|-g\,\delta\rho/\rho_0|_{{\rm rms}}$")
-    ax.set(xlabel="Time", ylabel="RMS amplitude ratio (dimensionless)",
-           title=rf"${ratio_label}$: measured and estimated")
-    notes = []
-    if not np.isfinite(run.z_ratio).any():
-        notes.append("Measured ratio unavailable: missing energy or zero pump amplitude")
-    if not np.isfinite(run.z_ratio_predicted).any():
-        notes.append("Estimate unavailable: missing density or no finite pump timescale")
-    if notes:
-        ax.text(0.5, 0.45, "\n".join(notes), transform=ax.transAxes,
-                ha="center", va="center", fontsize=8, wrap=True)
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=9)
-
-    ax = axes.ravel()[len(fields) + 1]
-    ax.plot(run.times, run.z_plus, color="tab:red", lw=2, label=r"$z^+_{\rm rms}/v_A$")
-    ax.plot(run.times, run.z_minus, color="tab:cyan", lw=2, label=r"$z^-_{\rm rms}/v_A$")
-    ax.set(xlabel="Time", ylabel=r"$z^\pm_{\rm rms}/v_A$ (dimensionless)",
-           title="Elsasser amplitudes: pump and counter-propagating wave")
-    if not np.isfinite(run.z_plus).any() and not np.isfinite(run.z_minus).any():
-        ax.text(0.5, 0.5, "Unavailable: missing w_plus/w_minus energy columns",
-                transform=ax.transAxes, ha="center", va="center", fontsize=8, wrap=True)
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=9)
-
-    for ax in axes.ravel()[panel_count:]:
+    for ax in axes[panel_count:]:
         ax.set_visible(False)
 
-    finite_chi_a = run.chi_a[np.isfinite(run.chi_a)]
-    chi_a_label = f"{finite_chi_a.mean():.3g}" if finite_chi_a.size else "n/a"
-    fig.suptitle(
-        f"{run_dir.name}: slaved amplitudes\n{run.source}; {run.branch} branch | "
-        rf"$g$ = {p.g:.4g}, $\chi$ = {p.chi:g}, $K_\rho$ = {p.K_rho0:g} | "
-        rf"mean RMS$(z_x)/z_{{\rm rms}}$ = {np.mean(run.alignment):.3f} "
-        rf"(isotropic: {ISOTROPIC_ALIGNMENT:.3f})" + "\n"
-        rf"mean measured $\chi_A$ = {chi_a_label}",
-        fontsize=10,
-    )
+    fig.suptitle(figure_title(run_dir, run, p), fontsize=10)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     finalize_figure(fig, output_path=output_path, show=show, plt=plt)
 
+
+# ---------------------------------------------------------------------------
+# Command line
+# ---------------------------------------------------------------------------
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("path", type=Path,
                         help="Run directory containing input_copy.input and scalar_diagnostics.csv.")
     parser.add_argument("--fields", nargs="+", choices=tuple(LABELS), default=list(LABELS),
-                        help="Compressive panels to show; the Eq. (73) panel is always added.")
-    parser.add_argument("--branch", choices=("plus", "minus"),
-                        help="Pump branch; default picks the stronger one in the first CSV row.")
+                        help="Compressive panels to show; the Eq. (73), z+/z- and u_perp/b_perp panels are always added.")
     parser.add_argument("--output", type=Path, help="Image path; default: RUN_DIRECTORY/slaved_projection.png.")
     parser.add_argument("--show", action="store_true", help="Show the figure after saving (e.g. in Spyder).")
     return parser
 
 
 def main(argv=None) -> Path:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    args = build_parser().parse_args(argv)
     run_dir = args.path.expanduser().resolve()
     p = load_parameters(run_dir)
-    run = read_from_csv(run_dir, args.fields, p, args.branch)
+    run = read_from_csv(run_dir, args.fields, p)
 
     output_path = (run_dir / "slaved_projection.png" if args.output is None
                    else args.output.expanduser().resolve())

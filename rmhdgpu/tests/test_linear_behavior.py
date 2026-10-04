@@ -55,7 +55,8 @@ def _scaled_state(state: State, factor: complex) -> State:
     return out
 
 
-@pytest.mark.parametrize("branch,sign", [("plus", 1.0), ("minus", -1.0)])
+# z_minus is phi = +psi and evolves as exp(+i vA kz t); z_plus is phi = -psi, exp(-i vA kz t).
+@pytest.mark.parametrize("branch,sign", [("z_minus", 1.0), ("z_plus", -1.0)])
 def test_alfven_single_mode_matches_exact_linear_evolution(branch: str, sign: float) -> None:
     config, backend, grid, fft, workspace, mask = _build_linear_context()
     state0 = alfven_mode_state(

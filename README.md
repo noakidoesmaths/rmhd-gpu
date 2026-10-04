@@ -260,9 +260,10 @@ Currently supported initial conditions are:
 
 - `initial_condition.type` selects a registered builder in `rmhdgpu.initconds`
 - put initializer-specific options under `[initial_condition.parameters]` (flat keys under `[initial_condition]` still work for compatibility)
-- `type = "alfven_mode"` with `k_indices = [kx, ky, kz]`, `amplitude`, and `branch = "plus"` or `"minus"`; `amplitude` rescales the mode so `total_energy ~ amplitude^2`
+- `type = "alfven_mode"` with `k_indices = [kx, ky, kz]`, `amplitude`, and `branch = "z_plus"` (the default) or `"z_minus"`; `amplitude` rescales the mode so `total_energy ~ amplitude^2`. The branch names the Elsasser wave, `z± = δu⊥ ∓ δB⊥/√(4πρ)`: `z_plus` sets `phi = -psi` and travels along `+B0`, `z_minus` sets `phi = +psi`. The old names `"plus"`/`"minus"` meant the opposite waves and are now rejected
 - `type = "zero"`
-- `type = "aw_packet"`
+- `type = "aw_packet"`, a pure z- packet (`psi = phi`)
+- `type = "random_spectrum_one_wave"` with `n_min_perp`, `n_max_perp`, `n_min_prl`, `n_max_prl`, `alpha`, `alpha_prl`, `init_energy`, `seed`, and `exclude_kpar0`; a band-limited random pure z+ state (`phi = -psi`) with the compressive fields zero, rescaled so `total_energy` matches `init_energy`
 - `type = "random_spectrum"` with `n_min`, `n_max`, `alpha`, `init_energy`, and `seed`; it fills every evolved field with an independent band-limited random spectrum, then rescales the full state so the equation-module `total_energy` matches `init_energy`
 - `type = "single_fourier_mode"` with `k_indices = [kx, ky, kz]`, `amplitude`, and `seed`; it puts independent random coefficients into the same Fourier mode for every evolved field
 - `type = "low_beta_stratified_mode"` for the low-beta stratified linear eigensystem; for `N2 > 0`, `amplitude` rescales the mode so `total_energy ~ amplitude^2`
@@ -337,6 +338,7 @@ Useful notes:
 - `plot_budget.py` compares saved `Q(t)` and finite-difference `d_t Q` against saved `Q_rhs_*` terms for a conserved quantity such as `total_energy`
 - `plot_spectra.py` writes one log-log plot per quantity, colored by time
 - `plot_fullfield.py` accepts either a `fullfields/` directory or a single snapshot `.h5` file
+- `plot_cross_helicity.py` plots `sigma_c = (W+ - W-)/(W+ + W-)` for the inhomogeneous RMHD sets; pass several run directories to overlay them (`sigma_c = 1` is pure `z+`)
 - most driver, plotting, profiling, and example scripts support `--help` to print available options
 
 Example budget check:

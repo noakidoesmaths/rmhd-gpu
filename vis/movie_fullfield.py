@@ -83,6 +83,20 @@ def _slice_axes(
     return "x", "y", (float(x[0]), float(x[-1]), float(y[0]), float(y[-1]))
 
 
+def _freeze_layout(fig, title, title_texts: list[str]) -> None:
+    """Lock the axes/colourbar positions so they cannot move between frames.
+
+    `constrained_layout` re-solves on every draw, and the title width changes
+    from frame to frame (t, step), which nudges the axes and colourbar by a
+    fraction of a pixel. We size the layout once using the widest title, then
+    switch the layout engine off so every frame is drawn in the same place.
+    """
+    title.set_text(max(title_texts, key=len))
+    fig.canvas.draw()
+    fig.set_layout_engine("none")
+    title.set_text("")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
@@ -221,13 +235,18 @@ def main(argv: list[str] | None = None) -> Path:
     ax.set_ylabel(ylabel)
     title = ax.set_title("")
 
-    def update(frame_index: int):
-        _key, time_value, step_value, slice_data = frames[frame_index]
-        image.set_data(slice_data.T)
-        title.set_text(
+    def title_text(time_value: float, step_value: int) -> str:
+        return (
             f"{args.field}  {args.slice_dir}={slice_coordinate:.3f} (index {slice_index})  "
             f"t={time_value:.3f}  step={step_value}"
         )
+
+    _freeze_layout(fig, title, [title_text(t, s) for _, t, s, _ in frames])
+
+    def update(frame_index: int):
+        _key, time_value, step_value, slice_data = frames[frame_index]
+        image.set_data(slice_data.T)
+        title.set_text(title_text(time_value, step_value))
         return image, title
 
     anim = FuncAnimation(fig, update, frames=len(frames), interval=1000.0 / args.fps, blit=False)

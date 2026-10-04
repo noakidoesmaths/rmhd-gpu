@@ -28,7 +28,7 @@ import numpy as np
 from rmhdgpu.equations import get_equation_module
 from rmhdgpu.forcing import shaped_random_real_field, shaped_random_real_field_perp_prl
 from rmhdgpu.initconds.eigenmodes_low_beta_stratified import low_beta_stratified_mode_state
-from rmhdgpu.initconds.eigenmodes_s09 import alfven_mode_state
+from rmhdgpu.initconds.eigenmodes_s09 import alfven_branch_phi_over_psi, alfven_mode_state
 from rmhdgpu.masks import apply_mask
 from rmhdgpu.operators import dx, dy, lap_perp
 from rmhdgpu.state import State
@@ -309,9 +309,9 @@ def _normalize_alfven_mode_parameters(parameters: dict[str, Any]) -> dict[str, A
     if amplitude <= 0.0:
         raise ValueError(f"amplitude must be positive; got {amplitude!r}.")
 
-    branch = str(parameters.get("branch", "plus"))
-    if branch not in {"plus", "minus"}:
-        raise ValueError(f"branch must be 'plus' or 'minus'; got {branch!r}.")
+    # "z_plus" (phi = -psi) or "z_minus" (phi = +psi); the old names raise with a hint.
+    branch = str(parameters.get("branch", "z_plus"))
+    alfven_branch_phi_over_psi(branch)
 
     return {
         "k_indices": k_indices,
@@ -488,7 +488,7 @@ def zero(
 @register_initial_condition(
     "alfven_mode",
     normalize_parameters=_normalize_alfven_mode_parameters,
-    description="Exact linear Alfvén eigenmode in Fourier space.",
+    description="Exact linear Alfvén eigenmode, a pure z+ (default) or z- wave, in Fourier space.",
 )
 def alfven_mode(
     *,
@@ -590,7 +590,7 @@ def single_fourier_mode(
 @register_initial_condition(
     "aw_packet",
     normalize_parameters=_normalize_aw_packet_parameters,
-    description="Large-amplitude nonlinear Alfvénic packet used by the examples.",
+    description="Large-amplitude nonlinear Alfvénic packet (pure z-, psi = phi) used by the examples.",
 )
 def aw_packet(
     *,
@@ -602,7 +602,11 @@ def aw_packet(
     field_names: Sequence[str],
     params: Any,
 ) -> State:
-    """Build the large-amplitude Alfvénic packet example state."""
+    """Build the large-amplitude Alfvénic packet example state.
+
+    It sets psi = phi, so with `z^± = zhat x grad_perp(phi ∓ psi)` it is a pure
+    z- packet, travelling along -B_0.
+    """
 
     _normalize_aw_packet_parameters(_as_parameter_dict(parameters))
     _require_fields("aw_packet", field_names, ("psi", "omega"))

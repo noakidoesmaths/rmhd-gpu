@@ -311,7 +311,7 @@ def test_alfvenic_invariants_for_single_linear_mode() -> None:
         field_names=s09.FIELD_NAMES,
         k_indices=(1, 1, 1),
         amplitude=0.5,
-        branch="plus",
+        branch="z_minus",
         params=config,
     )
     energy0 = alfvenic_energy(state0, grid, fft)

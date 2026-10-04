@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from rmhdgpu.diagnostics import scan_slaved_gradient as driver
+from rmhdgpu.diagnostics.compressive_channels import background_drives
 from vis import plot_slaved_gradient_scan as scan
 from vis import plot_slaved_projection as projection
 
@@ -67,7 +68,7 @@ def write_scalar_csv(run_dir, header, rows):
         writer.writerows(rows)
 
 
-def test_read_run_uses_field_forcings_and_normalizations_without_pump_diagnostics(tmp_path):
+def test_read_run_uses_field_forcings_and_normalizations_without_z_plus_diagnostics(tmp_path):
     run = write_run(tmp_path / "normalized", physics={
         "vA": 2.0, "cs2_over_vA2": 1.0, "g": 4.0, "K_p0": 5.0, "K_rho0": 1.5,
     })
@@ -83,10 +84,9 @@ def test_read_run_uses_field_forcings_and_normalizations_without_pump_diagnostic
     assert all(point["t_end"] == pytest.approx(10.0) for point in points.values())
     # Without w_plus_kperp there is no Eq. (47) estimate, but the measured points survive.
     assert all(np.isnan(point["slaved_rms"]) for point in points.values())
-    assert all(point["alignment_source"] == "none" for point in points.values())
 
 
-def test_slaved_estimate_uses_the_measured_window_and_records_its_alignment(tmp_path):
+def test_slaved_estimate_uses_the_z_plus_scales_in_the_measured_window(tmp_path):
     run = write_run(tmp_path / "window")
     # kperp and the alignment change at t = 5, so only the window's values may count.
     write_scalar_csv(run, ["time", "w_plus_kperp", "w_plus_align", "drho_rms"],
@@ -94,20 +94,19 @@ def test_slaved_estimate_uses_the_measured_window_and_records_its_alignment(tmp_
     point = scan.read_run(run, ["drho"], tmin=5.0)[0]
     # |F_rho| = 10.2, l_perp = 1/4 and alignment 0.5 in the window.
     assert point["slaved_rms"] == pytest.approx(10.2 * 0.25 * 0.5)
-    assert (point["pump_branch"], point["alignment_source"]) == ("plus", "measured")
 
-    # The stronger Elsasser branch in the first row is the pump.
-    write_scalar_csv(run, ["time", "w_plus", "w_minus", "w_minus_kperp", "w_minus_align", "drho_rms"],
-                     [[t, 1.0, 9.0, 2.0, 0.5, 3.0] for t in range(10)])
+    # The z- columns are never used, even when z- is the stronger wave.
+    write_scalar_csv(run, ["time", "w_plus", "w_minus", "w_plus_kperp", "w_plus_align",
+                           "w_minus_kperp", "w_minus_align", "drho_rms"],
+                     [[t, 1.0, 9.0, 2.0, 0.5, 4.0, 0.9, 3.0] for t in range(10)])
     point = scan.read_run(run, ["drho"])[0]
     assert point["slaved_rms"] == pytest.approx(10.2 * 0.5 * 0.5)
-    assert (point["pump_branch"], point["alignment_source"]) == ("minus", "measured")
 
-    # An older CSV without w_plus_align assumes the Eq. (48) value 1/sqrt(2).
+    # An older CSV without w_plus_align gets no estimate, rather than a guessed 1/sqrt(2).
     write_run(run)
     point = scan.read_run(run, ["drho"])[0]
-    assert point["slaved_rms"] == pytest.approx(10.2 * 0.5 / np.sqrt(2.0))
-    assert point["alignment_source"] == "assumed_isotropic"
+    assert np.isnan(point["slaved_rms"])
+    assert point["saturated_rms"] == pytest.approx(1.0)
 
 
 def test_tail_window_is_selected_by_time_then_uses_the_sample_mean(tmp_path):
@@ -255,10 +254,9 @@ def test_slaved_mean_matches_projection_over_the_same_tail_for_every_field(tmp_p
     run = write_run(tmp_path / "time_varying", physics={
         "vA": 2.0, "cs2_over_vA2": 1.0, "g": 4.0, "K_p0": 5.0, "K_rho0": 1.5,
     })
-    write_scalar_csv(run, ["time", "w_plus", "w_minus", "w_minus_kperp", "w_minus_align",
+    write_scalar_csv(run, ["time", "w_plus", "w_minus", "w_plus_kperp", "w_plus_align",
                            "drho_rms", "du_par_rms", "db_par_rms"],
-                     [[t, 1.0 if t == 0 else 100.0, 9.0, 1.0 + t, 0.1 + 0.05 * t,
-                       4.0, 8.0, 3.0] for t in range(11)])
+                     [[t, 9.0, 1.0, 1.0 + t, 0.1 + 0.05 * t, 4.0, 8.0, 3.0] for t in range(11)])
     parameters = projection.load_parameters(run)
     series = projection.read_from_csv(run, FIELDS, parameters)
     points = scan.read_run(run, FIELDS)
@@ -267,8 +265,6 @@ def test_slaved_mean_matches_projection_over_the_same_tail_for_every_field(tmp_p
         name = point["field"]
         assert point["slaved_rms"] == pytest.approx(series.predicted[name][window].mean())
         assert point["saturated_rms"] == pytest.approx(series.measured[name][window].mean())
-        assert point["pump_branch"] == "minus"  # Selected in the first row, not the tail.
-        assert point["alignment_source"] == "measured"
         assert (point["t_start"], point["t_end"], point["n_samples"]) == (6.0, 10.0, 5)
     assert [point["saturated_rms"] for point in points] == pytest.approx([4.0, 4.0, 6.0])
 
@@ -289,7 +285,6 @@ def test_measured_and_slaved_fits_select_valid_points_independently(tmp_path, mo
     points = [{
         "run_dir": f"run_{index}", "field": "drho", "forcing": -drive,
         "saturated_rms": measured, "slaved_rms": slaved,
-        "pump_branch": "plus", "alignment_source": "measured",
         "t_start": 6.0, "t_end": 10.0, "n_samples": 5,
     } for index, (drive, measured, slaved) in enumerate(
         [(1.0, 1.0, 4.0), (2.0, 2.0, 2.0), (4.0, 4.0, 1.0), (8.0, 64.0, np.nan)]
@@ -321,8 +316,8 @@ def test_cli_defaults_to_all_fields_and_writes_png_and_simple_summary(tmp_path):
         reader = csv.DictReader(handle)
         rows = list(reader)
         assert set(reader.fieldnames) == {
-            "run_dir", "field", "forcing", "saturated_rms", "slaved_rms", "pump_branch",
-            "alignment_source", "t_start", "t_end", "n_samples",
+            "run_dir", "field", "forcing", "saturated_rms", "slaved_rms",
+            "t_start", "t_end", "n_samples",
         }
     assert len(rows) == 9
     assert {row["field"] for row in rows} == set(FIELDS)
@@ -362,21 +357,14 @@ def test_summary_preserves_signed_drive_and_linear_rms(tmp_path):
     assert float(rows["db_par"]["saturated_rms"]) == pytest.approx(8.0)
 
 
-# --- simulation scan driver (unchanged) -----------------------------------------------
-
-
-def test_driver_forcings_match_the_projection_script():
-    # The driver keeps its own copy so rmhdgpu does not import vis; they must not drift.
-    for physics in (BASE_PHYSICS, {**BASE_PHYSICS, "g": -2.0, "K_p0": 3.0, "K_rho0": 0.25}):
-        p = driver.derived_parameters(physics)
-        assert driver.background_forcings(p) == pytest.approx(projection.forcings(p))
+# --- simulation scan driver ------------------------------------------------------------
 
 
 def test_each_knob_plots_exactly_the_fields_it_drives():
     base = driver.derived_parameters(BASE_PHYSICS)
     for knob, driven in driver.FIELDS_DRIVEN_BY.items():
         moved = driver.derived_parameters({**BASE_PHYSICS, knob: BASE_PHYSICS[knob] + 0.5})
-        before, after = driver.background_forcings(base), driver.background_forcings(moved)
+        before, after = background_drives(base), background_drives(moved)
         changed = {name for name in driver.FIELDS if after[name] != pytest.approx(before[name])}
         assert changed == set(driven), knob
 

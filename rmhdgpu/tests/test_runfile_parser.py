@@ -144,6 +144,30 @@ type = "zero"
     assert settings.initial_condition.type == "zero"
 
 
+def test_mode_branch_names_the_elsasser_wave(tmp_path) -> None:
+    input_file = tmp_path / "branch.input"
+    input_file.write_text('title = "Branch case"\n', encoding="utf-8")
+
+    # The default alfven_mode launches z+ = u_perp - b_perp.
+    settings = resolve_run_settings(runfile_path=input_file)
+    assert settings.initial_condition.parameters["branch"] == "z_plus"
+
+    args = build_parser().parse_args([str(input_file), "--mode-branch", "z_minus"])
+    settings = resolve_run_settings(
+        runfile_path=args.input_file,
+        cli_overrides=cli_overrides_from_args(args),
+    )
+    assert settings.initial_condition.parameters["branch"] == "z_minus"
+
+    # The old names meant the opposite waves, so they fail with a pointer to the new name.
+    args = build_parser().parse_args([str(input_file), "--mode-branch", "plus"])
+    with pytest.raises(ValueError, match="branch = 'z_minus'"):
+        resolve_run_settings(
+            runfile_path=args.input_file,
+            cli_overrides=cli_overrides_from_args(args),
+        )
+
+
 def test_initial_condition_parameter_table_parses_and_overrides_defaults(tmp_path) -> None:
     input_file = tmp_path / "initcond_parameters.input"
     input_file.write_text(

@@ -39,11 +39,36 @@ def _stored_mode_array(
 
 
 def _branch_sign(branch: str) -> float:
+    """Sign of the slow-mode eigenvalue; the Alfven mode names its branches by Elsasser wave."""
     if branch == "plus":
         return 1.0
     if branch == "minus":
         return -1.0
     raise ValueError(f"branch must be 'plus' or 'minus'; got {branch!r}.")
+
+
+# phi = ratio * psi for each Alfven branch. z^± = zhat x grad_perp(phi ∓ psi), so
+# phi = -psi leaves only z+ and phi = +psi leaves only z-.
+ALFVEN_BRANCH_PHI_OVER_PSI = {"z_plus": -1.0, "z_minus": 1.0}
+_RENAMED_ALFVEN_BRANCHES = {"plus": "z_minus", "minus": "z_plus"}
+
+
+def alfven_branch_phi_over_psi(branch: str) -> float:
+    """Return phi/psi for an Alfven-mode branch, `"z_plus"` (-1) or `"z_minus"` (+1).
+
+    The branches used to be called `"plus"` (phi = +psi, which is z-) and
+    `"minus"` (phi = -psi, which is z+). Those names now raise an error that
+    names the branch giving the same wave, rather than silently flipping it.
+    """
+
+    if branch in _RENAMED_ALFVEN_BRANCHES:
+        raise ValueError(
+            f"alfven_mode branch {branch!r} was renamed after the Elsasser wave it launches; "
+            f"use branch = {_RENAMED_ALFVEN_BRANCHES[branch]!r} for the same wave."
+        )
+    if branch not in ALFVEN_BRANCH_PHI_OVER_PSI:
+        raise ValueError(f"alfven_mode branch must be 'z_plus' or 'z_minus'; got {branch!r}.")
+    return ALFVEN_BRANCH_PHI_OVER_PSI[branch]
 
 
 def alfven_mode_state(
@@ -52,17 +77,18 @@ def alfven_mode_state(
     field_names: Sequence[str] | None,
     k_indices: Sequence[int],
     amplitude: complex | float = 1.0,
-    branch: str = "plus",
+    branch: str = "z_plus",
     params: Any | None = None,
 ) -> State:
     """Return an exact Alfvén eigenmode in Fourier space.
 
-    Branch convention:
+    Branches are named after the Elsasser wave they launch, with
+    `z^± = delta u_perp ∓ delta B_perp/sqrt(4 pi rho_0) = zhat x grad_perp(phi ∓ psi)`:
 
-    - `branch="plus"` uses `phi = +psi`, so the mode evolves as
-      `exp(+i vA k_z t)`
-    - `branch="minus"` uses `phi = -psi`, so the mode evolves as
-      `exp(-i vA k_z t)`
+    - `branch="z_plus"` uses `phi = -psi`, a pure z+ wave travelling along +B_0,
+      so the mode evolves as `exp(-i vA k_z t)`
+    - `branch="z_minus"` uses `phi = +psi`, a pure z- wave travelling along -B_0,
+      so the mode evolves as `exp(+i vA k_z t)`
 
     The amplitude parameter rescales the mode so `sqrt(total_energy) = amplitude`
     using the active equation-set energy diagnostic. For an exact Alfvén wave
@@ -81,9 +107,9 @@ def alfven_mode_state(
     if kperp2 == 0.0:
         raise ValueError("Alfvén eigenmodes require k_perp != 0.")
 
-    sign = _branch_sign(branch)
+    phi_over_psi = alfven_branch_phi_over_psi(branch)
     psi_hat = _stored_mode_array(grid, backend, k_indices, 1.0)
-    phi_hat = sign * psi_hat
+    phi_hat = phi_over_psi * psi_hat
     omega_hat = lap_perp(phi_hat, grid)
 
     state["psi"][...] = psi_hat

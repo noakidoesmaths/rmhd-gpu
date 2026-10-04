@@ -28,32 +28,22 @@ def columns():
     }
 
 
-@pytest.mark.parametrize(
-    "branch, expected, measured, mean_chi",
-    [("plus", [3, 4, 4.5], [0, 8, 18], 3),
-     ("minus", [3, 3, 3], [3, 6, 9], 2)],
-)
-def test_measured_closure_and_energy_normalization(columns, branch, expected, measured, mean_chi):
-    # W = z^2 / 4: plus z = [2, 4, 6], omega_nl = [4, 12, 24].
-    series = dcf.calculate_series(columns, branch=branch)
-    np.testing.assert_allclose(series.q_predicted, expected)
-    np.testing.assert_allclose(series.q_measured, measured)
+def test_measured_closure_and_energy_normalization(columns):
+    # W+ = z^2 / 4: z+ = [2, 4, 6], omega_nl = [4, 12, 24].
+    series = dcf.calculate_series(columns)
+    np.testing.assert_allclose(series.q_predicted, [3, 4, 4.5])
+    np.testing.assert_allclose(series.q_measured, [0, 8, 18])
     np.testing.assert_array_equal(series.times, [0, 1, 2])
-    assert series.branch == branch
     assert series.mean_prefactor == pytest.approx(2)
-    assert series.mean_chi_a == pytest.approx(mean_chi)
+    assert series.mean_chi_a == pytest.approx(3)
     assert series.q_reference is None
     assert series.q_fixed_scale is None
 
 
-def test_auto_branch_uses_whole_run_and_plus_wins_ties(columns):
-    columns["w_plus"] = np.array([100.0, 1.0, 1.0])
-    columns["w_minus"] = np.array([1.0, 2.0, 2.0])
-    assert dcf.calculate_series(columns, tmin=1).branch == "plus"
-    columns["w_plus"] = columns["w_minus"].copy()
-    assert dcf.calculate_series(columns).branch == "plus"
-    columns["w_minus"] *= 2
-    assert dcf.calculate_series(columns).branch == "minus"
+def test_only_the_z_plus_columns_are_needed(columns):
+    for name in ("w_minus", "w_minus_kperp", "w_minus_kprl", "q_ccr_source"):
+        del columns[name]
+    np.testing.assert_allclose(dcf.calculate_series(columns).q_predicted, [3, 4, 4.5])
 
 
 def test_assumed_chi_and_fixed_outer_scale(columns):
@@ -104,17 +94,10 @@ def test_tmin_changes_statistics_only(columns):
 
 def test_zero_energy_keeps_undefined_closure_and_zero_fixed_scale(columns):
     columns["w_plus"][:] = 0
-    series = dcf.calculate_series(columns, branch="plus", l_perp=0.5)
+    series = dcf.calculate_series(columns, l_perp=0.5)
     assert np.isnan(series.q_predicted).all()
     assert np.isnan(series.mean_prefactor)
     np.testing.assert_array_equal(series.q_fixed_scale, [0, 0, 0])
-
-
-def test_explicit_minus_branch_only_needs_its_own_columns(columns):
-    for name in ("w_plus", "w_plus_kperp", "w_plus_kprl", "q_dcf"):
-        del columns[name]
-    series = dcf.calculate_series(columns, branch="minus")
-    np.testing.assert_allclose(series.q_predicted, [3, 3, 3])
 
 
 @pytest.mark.parametrize("n_sq", [12, -12, 0])
@@ -126,14 +109,11 @@ def test_stratification_sign(columns, n_sq):
     np.testing.assert_allclose(series.q_fixed_scale, np.array([3, 6, 9]) * n_sq / 12)
 
 
-@pytest.mark.parametrize(
-    "missing, branch", [("N_sq", "plus"), ("w_plus_kperp", "plus"),
-                        ("q_ccr_source", "minus"), ("w_minus", "auto")],
-)
-def test_missing_columns_have_clear_errors(columns, missing, branch):
+@pytest.mark.parametrize("missing", ["N_sq", "w_plus", "w_plus_kperp", "q_dcf"])
+def test_missing_columns_have_clear_errors(columns, missing):
     del columns[missing]
     with pytest.raises(SystemExit, match=missing):
-        dcf.calculate_series(columns, branch=branch)
+        dcf.calculate_series(columns)
 
 
 def test_invalid_assumed_chi_has_clear_errors(columns):
@@ -156,7 +136,7 @@ def test_csv_reader_and_cli_png(tmp_path, columns):
     for name, expected in columns.items():
         np.testing.assert_array_equal(loaded[name], expected)
     output = tmp_path / "plots" / "dcf.png"
-    result = dcf.main([str(csv_path), "--branch", "minus", "--chi-a", "1",
+    result = dcf.main([str(csv_path), "--chi-a", "1",
                        "--l-perp", "0.5", "--tmin", "1", "--output", str(output)])
     assert result == output
     assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")

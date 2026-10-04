@@ -5,6 +5,7 @@ import pytest
 
 from rmhdgpu.backend import build_backend
 from rmhdgpu.config import Config
+from rmhdgpu.diagnostics import compressive_channels as channels
 from rmhdgpu.equations import low_beta_stratified, s09
 from rmhdgpu.fft import FFTManager
 from rmhdgpu.grid import build_grid
@@ -14,8 +15,9 @@ from rmhdgpu.initconds import (
     list_initial_condition_types,
     low_beta_stratified_mode_state,
 )
+from rmhdgpu.initconds.eigenmodes_s09 import alfven_mode_state
 from rmhdgpu.masks import build_dealias_mask
-from rmhdgpu.operators import lap_perp
+from rmhdgpu.operators import inv_lap_perp, lap_perp
 
 
 def _build_context() -> tuple[Config, object, object, FFTManager, object]:
@@ -68,7 +70,7 @@ def test_alfven_mode_initial_condition() -> None:
     config, backend, grid, fft, mask = _build_context()
     state = build_initial_state(
         "alfven_mode",
-        parameters={"k_indices": [1, 1, 1], "amplitude": 0.2, "branch": "plus"},
+        parameters={"k_indices": [1, 1, 1], "amplitude": 0.2, "branch": "z_minus"},
         grid=grid,
         backend=backend,
         fft=fft,
@@ -83,6 +85,65 @@ def test_alfven_mode_initial_condition() -> None:
     assert np.isfinite(psi_hat).all()
     assert np.count_nonzero(np.abs(psi_hat) > 0.0) == 1
     np.testing.assert_allclose(omega_hat, backend.to_numpy(lap_perp(state["psi"], grid)))
+
+
+@pytest.mark.parametrize("equation_set", ["s09", "inhomogeneous_rmhd_rho"])
+def test_alfven_mode_branches_are_named_after_the_elsasser_wave(equation_set: str) -> None:
+    """z_plus (the default) leaves only z+ = u_perp - b_perp; z_minus leaves only z-."""
+
+    config = Config(
+        equation_set=equation_set, Nx=8, Ny=8, Nz=8, backend="numpy",
+        vA=1.3, cs2_over_vA2=0.4, g=0.35, K_p0=0.9, K_rho0=2.1,
+    )
+    backend = build_backend(config)
+    grid = build_grid(config, backend)
+    fft = FFTManager(grid, backend)
+    mask = build_dealias_mask(grid, backend)
+
+    energies = {}
+    for branch in (None, "z_plus", "z_minus"):
+        parameters = {"k_indices": [1, 2, 1], "amplitude": 0.2}
+        if branch is not None:
+            parameters["branch"] = branch
+        state = build_initial_state(
+            "alfven_mode", parameters=parameters, grid=grid, backend=backend, fft=fft,
+            dealias_mask=mask, field_names=config.field_names, params=config,
+        )
+        z_plus_hat, z_minus_hat = channels.elsasser_potentials(
+            inv_lap_perp(state["omega"], grid), state["psi"],
+        )
+        energies[branch] = (
+            channels.elsasser_energy(z_plus_hat, grid, backend),
+            channels.elsasser_energy(z_minus_hat, grid, backend),
+        )
+
+    assert energies[None] == energies["z_plus"]
+    w_plus, w_minus = energies["z_plus"]
+    assert w_plus > 0.0 and w_minus <= 1.0e-28 * w_plus
+    w_plus, w_minus = energies["z_minus"]
+    assert w_minus > 0.0 and w_plus <= 1.0e-28 * w_minus
+
+
+@pytest.mark.parametrize("old, new", [("plus", "z_minus"), ("minus", "z_plus")])
+def test_old_alfven_branch_names_say_which_new_name_to_use(old: str, new: str) -> None:
+    """The old names meant the opposite waves, so they fail rather than flip silently."""
+
+    config, backend, grid, fft, mask = _build_context()
+    with pytest.raises(ValueError, match=f"branch = '{new}'"):
+        build_initial_state(
+            "alfven_mode", parameters={"branch": old}, grid=grid, backend=backend, fft=fft,
+            dealias_mask=mask, field_names=config.field_names, params=config,
+        )
+    with pytest.raises(ValueError, match=f"branch = '{new}'"):
+        alfven_mode_state(
+            grid=grid, backend=backend, field_names=config.field_names,
+            k_indices=(1, 1, 1), branch=old, params=config,
+        )
+    with pytest.raises(ValueError, match="'z_plus' or 'z_minus'"):
+        alfven_mode_state(
+            grid=grid, backend=backend, field_names=config.field_names,
+            k_indices=(1, 1, 1), branch="up", params=config,
+        )
 
 
 def test_aw_packet_initial_condition() -> None:
@@ -246,7 +307,7 @@ def test_alfven_mode_initial_condition_energy_matches_amplitude_squared() -> Non
     amplitude = 0.2
     state = build_initial_state(
         "alfven_mode",
-        parameters={"k_indices": [1, 1, 1], "amplitude": amplitude, "branch": "plus"},
+        parameters={"k_indices": [1, 1, 1], "amplitude": amplitude, "branch": "z_minus"},
         grid=grid,
         backend=backend,
         fft=fft,

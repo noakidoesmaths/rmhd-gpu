@@ -97,7 +97,7 @@ def test_ideal_plus_dissipation_single_linear_mode() -> None:
         field_names=config.field_names,
         k_indices=(1, 1, 1),
         amplitude=0.2,
-        branch="plus",
+        branch="z_minus",
         params=config,
     )
 

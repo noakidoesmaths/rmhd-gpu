@@ -1,14 +1,13 @@
 # `.input` files use TOML syntax.
 #
-# This reproduces the old `` test as a normal case input.
-# The built-in `aw_packet` initializer creates the same large-amplitude
-# packet used there: a smooth `phi = psi` superposition of the first three
-# modes in each direction, normalized to unit RMS.
+# Linearized inhomogeneous RMHD (rho form), started from `single_fourier_mode`:
+# every evolved field gets an independent random coefficient in the same
+# Fourier mode, so both Elsasser waves and all compressive fields are present.
+# `scan_linear_inhomo_rmhd_growth.py` uses this file as its base case.
 #
 # Use:
-#   python -m rmhdgpu.run examples/aw_packet.input
-#   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
-#   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
+#   python -m rmhdgpu.run rmhdgpu/diagnostics/nokia_inhomo_linear.input
+#   python vis/plot_scalars.py rmhdgpu/diagnostics/outputs/scalar_diagnostics.csv
 #
 
 title = "Inhomogeneous rmhd simulation test"

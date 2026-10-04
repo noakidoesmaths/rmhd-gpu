@@ -24,7 +24,7 @@ def test_smoke_construction_and_diagnostics() -> None:
         field_names=config.field_names,
         k_indices=(1, 1, 1),
         amplitude=1.0,
-        branch="plus",
+        branch="z_minus",
         params=config,
     )
 

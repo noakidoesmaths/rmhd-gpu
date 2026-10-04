@@ -665,11 +665,13 @@ def conserved_quantity_values(
     conserved quantity, not just `total_energy`.
     """
 
-    fields = channel_fields(state, grid, params)
+    z_plus_hat, z_minus_hat = channels.elsasser_potentials(
+        derive_phi_hat(state["omega"], grid), state["psi"],
+    )
     return {
         "total_energy": total_energy(state, grid, backend, params),
-        "w_plus": channels.elsasser_energy(fields, grid, backend, sign=1),
-        "w_minus": channels.elsasser_energy(fields, grid, backend, sign=-1),
+        "w_plus": channels.elsasser_energy(z_plus_hat, grid, backend),
+        "w_minus": channels.elsasser_energy(z_minus_hat, grid, backend),
     }
 
 

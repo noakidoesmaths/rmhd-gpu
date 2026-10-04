@@ -3,7 +3,7 @@
 This test is intentionally both a solver regression test and a saved
 diagnostic:
 
-1. Round 1 starts from a large-amplitude exact nonlinear `z+` Alfvén wave.
+1. Round 1 starts from a large-amplitude exact nonlinear `z-` Alfvén wave.
    Because this is an exact solution of the ideal two-field Alfvénic system,
    the final-time error tests both the implemented equations and the SSPRK3
    timestep convergence.
@@ -381,7 +381,7 @@ def _print_experiment_description(settings: ConvergenceSettings) -> None:
         flush=True,
     )
     print(
-        f"  round 1: exact nonlinear z+ Alfvén wave with k={settings.k_indices}, "
+        f"  round 1: exact nonlinear z- Alfvén wave with k={settings.k_indices}, "
         f"resolution={settings.resolution}^3, {settings.runs_per_round} runs",
         flush=True,
     )
@@ -412,7 +412,7 @@ def run_alfvenic_timestep_convergence(
     config1, backend1, grid1, fft1, workspace1, mask1 = _build_context(settings)
     state_single = build_initial_state(
         "alfven_mode",
-        parameters={"k_indices": list(settings.k_indices), "amplitude": settings.alfven_amplitude, "branch": "plus"},
+        parameters={"k_indices": list(settings.k_indices), "amplitude": settings.alfven_amplitude, "branch": "z_minus"},
         grid=grid1,
         backend=backend1,
         fft=fft1,

@@ -2,14 +2,14 @@
 
 Reads scalar_diagnostics.csv from either inhomogeneous RMHD equation set.
 For a straight field with no mean flow, Squire et al. (arXiv:2607.08036,
-Eqs. 18, 70-71) gives:
+Eqs. 18, 70-71) gives, for the launched wave z+ = delta u_perp - delta B_perp/sqrt(4 pi rho):
 
-    measured:   Q = q_dcf (plus branch) or q_ccr_source (minus branch)
-    predicted:  Q = W * N_sq / omega_nl,   omega_nl = 2*sqrt(W)*<k_perp>
+    measured:   Q = q_dcf = -(d_t W+)|_buoyancy
+    predicted:  Q = W+ * N_sq / omega_nl,   omega_nl = 2*sqrt(W+)*<k_perp>
 
-Positive measured Q means buoyancy removes energy from the pump wave.
+Positive measured Q means buoyancy removes energy from z+.
 --chi-a replaces the measured turbulence strength with a fixed value:
-Q = W*N_sq / (chi_A*vA*<k_parallel>). The measured-chi prediction is then
+Q = W+*N_sq / (chi_A*vA*<k_parallel>). The measured-chi prediction is then
 shown for comparison. --l-perp adds a separate fixed-outer-scale estimate.
 The mean measured/predicted ratio is a fitted prefactor, not a pass/fail test.
 
@@ -35,10 +35,6 @@ import numpy as np
 from vis._matplotlib import finalize_figure, import_pyplot
 
 
-# Instantaneous negative buoyancy work on the selected Elsasser branch.
-WORK_COLUMNS = {"plus": "q_dcf", "minus": "q_ccr_source"}
-
-
 @dataclass
 class RunSeries:
     """Heating curves and their summary, ready to plot."""
@@ -48,7 +44,6 @@ class RunSeries:
     q_predicted: np.ndarray
     q_reference: np.ndarray | None
     q_fixed_scale: np.ndarray | None
-    branch: str
     n_sq: float
     mean_prefactor: float
     mean_chi_a: float
@@ -74,28 +69,18 @@ def safe_ratio(numerator, denominator):
                      where=np.abs(denominator) > 0.0)
 
 
-def calculate_series(columns, branch="auto", chi_a=None, l_perp=None, tmin=None):
-    """Select the pump, calculate the heating estimates, and average their ratio."""
+def calculate_series(columns, chi_a=None, l_perp=None, tmin=None):
+    """Calculate the DCF heating of z+ and its closure estimates, and average their ratio."""
     time_key = "time" if "time" in columns else "t"
-    required = [time_key, "N_sq"]
-    required += ["w_plus", "w_minus"] if branch == "auto" else [f"w_{branch}"]
+    required = [time_key, "N_sq", "w_plus", "w_plus_kperp", "q_dcf"]
     missing = [name for name in required if name not in columns]
     if missing:
         raise SystemExit(f"Scalar diagnostics are missing {missing}.")
-    if branch == "auto":
-        # Use the whole run, including times before tmin; ties select plus.
-        branch = "plus" if columns["w_plus"].mean() >= columns["w_minus"].mean() else "minus"
-
-    energy_column = f"w_{branch}"
-    work_column = WORK_COLUMNS[branch]
-    missing = [name for name in (f"{energy_column}_kperp", work_column) if name not in columns]
-    if missing:
-        raise SystemExit(f"The {branch} branch needs these missing columns: {missing}.")
     times = columns[time_key]
-    energy = columns[energy_column]
-    kperp = columns[f"{energy_column}_kperp"]
-    kparallel = columns.get(f"{energy_column}_kprl")
-    q_measured = columns[work_column]
+    energy = columns["w_plus"]
+    kperp = columns["w_plus_kperp"]
+    kparallel = columns.get("w_plus_kprl")
+    q_measured = columns["q_dcf"]
     n_sq = float(columns["N_sq"][0])
     v_a = float(columns["vA"][0]) if "vA" in columns else 1.0
 
@@ -106,7 +91,7 @@ def calculate_series(columns, branch="auto", chi_a=None, l_perp=None, tmin=None)
 
     if chi_a is not None:
         if kparallel is None:
-            raise SystemExit(f"--chi-a needs the {energy_column}_kprl column.")
+            raise SystemExit("--chi-a needs the w_plus_kprl column.")
         if chi_a == 0.0:
             raise SystemExit("--chi-a must be nonzero.")
         q_predicted = safe_ratio(energy * n_sq, chi_a * v_a * kparallel)
@@ -136,7 +121,7 @@ def calculate_series(columns, branch="auto", chi_a=None, l_perp=None, tmin=None)
 
     return RunSeries(
         times=times, q_measured=q_measured, q_predicted=q_predicted,
-        q_reference=q_reference, q_fixed_scale=q_fixed_scale, branch=branch, n_sq=n_sq,
+        q_reference=q_reference, q_fixed_scale=q_fixed_scale, n_sq=n_sq,
         mean_prefactor=mean_prefactor, mean_chi_a=mean_chi_a,
         chi_a=chi_a, l_perp=l_perp, tmin=tmin,
     )
@@ -161,9 +146,8 @@ def plot_series(run, output_path, show=False):
     if run.tmin is not None:
         ax.axvline(run.tmin, color="0.4", lw=1, ls=":")
 
-    pump_label = r"z^+" if run.branch == "plus" else r"z^-"
     stability = "stable" if run.n_sq > 0 else "unstable" if run.n_sq < 0 else "neutral"
-    title = rf"DCF heating: pump ${pump_label}$, $N^2={run.n_sq:.4g}$ ({stability})"
+    title = rf"DCF heating of $z^+$, $N^2={run.n_sq:.4g}$ ({stability})"
     if np.isfinite(run.mean_prefactor):
         title += f"\nMean measured / closure = {run.mean_prefactor:.3g}"
         if run.tmin is not None:
@@ -180,8 +164,6 @@ def plot_series(run, output_path, show=False):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("csv_path", type=Path, help="Path to scalar_diagnostics.csv.")
-    parser.add_argument("--branch", choices=("auto", "plus", "minus"), default="auto",
-                        help="Pump branch; auto selects the larger mean energy over the whole run.")
     parser.add_argument("--chi-a", type=float,
                         help="Assumed turbulence strength (e.g. 1); default uses measured chi_A.")
     parser.add_argument("--l-perp", type=float, help="Add a reference curve using this fixed outer scale.")
@@ -195,8 +177,7 @@ def main(argv=None) -> Path:
     args = build_parser().parse_args(argv)
     csv_path = args.csv_path.expanduser().resolve()
     columns = read_scalar_csv(csv_path)
-    run = calculate_series(columns, branch=args.branch, chi_a=args.chi_a,
-                           l_perp=args.l_perp, tmin=args.tmin)
+    run = calculate_series(columns, chi_a=args.chi_a, l_perp=args.l_perp, tmin=args.tmin)
     output_path = (csv_path.with_name("dcf_measured_vs_predicted.png") if args.output is None
                    else args.output.expanduser().resolve())
     plot_series(run, output_path, args.show)

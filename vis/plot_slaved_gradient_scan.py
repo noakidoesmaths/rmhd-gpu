@@ -8,17 +8,16 @@ automatically determine whether a run has saturated.
 The average is the arithmetic mean of saved RMS samples, as in the original
 scan. Take the logarithm AFTER averaging the RMS, not of the signed field.
 Density is delta rho/rho_0, velocity is delta u_parallel/vA, and the magnetic
-field is (vA^2/vS^2) delta B_parallel/B_0, using the projection script's units.
+field is (vA^2/vS^2) delta B_parallel/B_0 (compressive_channels.slaved_field_units).
 
 Each panel also shows the slaved estimate of Eq. (47),
-|F| * l_perp * rms(z_x)/z_rms, averaged over the same window and logged the
-same way. It is computed by plot_slaved_projection.read_from_csv, so it needs
-the pump's w_*_kperp column; without it a run keeps only its measured point.
-A CSV without w_*_align falls back to the isotropic alignment 1/sqrt(2), and
-the legend then says so. Each series gets an ordinary least-squares line
-through its (log10|F|, log10 RMS) points, so the slope in the legend is the
-power-law exponent: 1 when the amplitude is proportional to its drive. A line
-needs at least two different drives.
+|F| * l_perp * rms(z+_x)/z+_rms, averaged over the same window and logged the
+same way. It is computed by plot_slaved_projection.read_from_csv from the z+
+columns w_plus_kperp and w_plus_align; a CSV without them (for example one
+written before 2026-09-23) keeps only its measured point. Each series gets an
+ordinary least-squares line through its (log10|F|, log10 RMS) points, so the
+slope in the legend is the power-law exponent: 1 when the amplitude is
+proportional to its drive. A line needs at least two different drives.
 
 Examples (also usable as main([...]) in Spyder):
     python vis/plot_slaved_gradient_scan.py RUN_1 RUN_2 RUN_3 --tmin 120
@@ -36,10 +35,9 @@ if __package__ in {None, ""}:
 
 import numpy as np
 
+from rmhdgpu.diagnostics.compressive_channels import background_drives, slaved_field_units
 from vis._matplotlib import finalize_figure, import_pyplot
-from vis.plot_slaved_projection import (
-    COLORS, LABELS, forcings, load_parameters, measured_divisors, read_from_csv,
-)
+from vis.plot_slaved_projection import COLORS, LABELS, load_parameters, read_from_csv
 
 
 FIELDS = tuple(LABELS)
@@ -53,8 +51,8 @@ def read_run(run_dir, fields, *, tmin=None, tail_fraction=0.4):
     """Return each field's drive, mean normalized RMS and mean slaved estimate in one window."""
     run_dir = Path(run_dir)
     p = load_parameters(run_dir)
-    drive = forcings(p)
-    divisor = measured_divisors(p)
+    drive = background_drives(p)
+    divisor = slaved_field_units(p)
 
     csv_path = run_dir / "scalar_diagnostics.csv"
     with csv_path.open(encoding="utf-8", newline="") as handle:
@@ -80,18 +78,9 @@ def read_run(run_dir, fields, *, tmin=None, tail_fraction=0.4):
         raise ValueError(f"{run_dir.name}: fewer than two samples in the averaging window.")
 
     # The Eq. (47) estimate comes from the projection script, so its formula lives in one
-    # place. read_from_csv reports a missing column (usually the pump's w_*_kperp) with
-    # SystemExit; such a run still gives its measured points, just no estimate.
-    try:
-        series = read_from_csv(run_dir, fields, p)
-    except SystemExit as error:
-        print(f"{run_dir.name}: no slaved estimate. {error}")
-        series = None
-    if series is None:
-        branch, alignment = "none", "none"
-    else:
-        branch = series.branch
-        alignment = "measured" if f"w_{branch}_align" in rows[0] else "assumed_isotropic"
+    # place. It is NaN where the CSV lacks the z+ columns it needs, and such a run still
+    # gives its measured points, just no estimate.
+    series = read_from_csv(run_dir, fields, p)
 
     points = []
     for name in fields:
@@ -101,21 +90,16 @@ def read_run(run_dir, fields, *, tmin=None, tail_fraction=0.4):
         if not np.isfinite(divisor[name]) or divisor[name] <= 0 or not np.isfinite(drive[name]):
             raise ValueError(f"{run_dir.name}: invalid normalization or drive for {name}.")
         # Same samples and same arithmetic mean as the measured RMS, in the same units.
-        slaved = float("nan")
-        if series is not None:
-            estimate = series.predicted[name][window]
-            if np.isfinite(estimate).all():
-                slaved = float(estimate.mean())
-            else:
-                print(f"{run_dir.name}: non-finite slaved {name} estimate in the window; omitted.")
+        estimate = series.predicted[name][window]
+        slaved = float(estimate.mean()) if np.isfinite(estimate).all() else float("nan")
+        if np.isnan(slaved):
+            print(f"{run_dir.name}: no finite slaved {name} estimate in the window; omitted.")
         points.append({
             "run_dir": str(run_dir),
             "field": name,
             "forcing": drive[name],
             "saturated_rms": float((rms / divisor[name]).mean()),
             "slaved_rms": slaved,
-            "pump_branch": branch,
-            "alignment_source": alignment,
             "t_start": float(start),
             "t_end": float(times[-1]),
             "n_samples": int(window.sum()),
@@ -176,9 +160,6 @@ def plot_scan(points, fields, output_path, *, show=False, parameter=None):
         x, y = log10_points(field_points, "saturated_rms")
         x_slaved, y_slaved = log10_points(field_points, "slaved_rms")
         if x.size or x_slaved.size:
-            slaved_label = SLAVED_LABEL
-            if any(point["alignment_source"] == "assumed_isotropic" for point in field_points):
-                slaved_label += r", $1/\sqrt{2}$ alignment assumed"
             # Measured: filled, solid line, field colour. Slaved: hollow, dashed, black,
             # as in plot_slaved_projection.py.
             fits = {
@@ -187,7 +168,7 @@ def plot_scan(points, fields, output_path, *, show=False, parameter=None):
                     marker_style=dict(color=COLORS[name], s=45),
                     line_style=dict(color=COLORS[name], ls="-")),
                 "slaved": draw_series(
-                    ax, x_slaved, y_slaved, label=slaved_label, fit_label="Slaved fit",
+                    ax, x_slaved, y_slaved, label=SLAVED_LABEL, fit_label="Slaved fit",
                     marker_style=dict(marker="s", s=45, facecolors="none", edgecolors="black"),
                     line_style=dict(color="black", ls="--")),
             }

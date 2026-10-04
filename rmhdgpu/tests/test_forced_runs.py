@@ -154,7 +154,7 @@ def test_forcing_disabled_preserves_previous_behavior() -> None:
         field_names=config.field_names,
         k_indices=(1, 1, 1),
         amplitude=0.2,
-        branch="plus",
+        branch="z_minus",
         params=config,
     )
 

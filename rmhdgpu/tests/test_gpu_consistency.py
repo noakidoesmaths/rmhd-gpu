@@ -111,7 +111,7 @@ def _single_mode_state(config: Config, backend: object, grid: object, fft: FFTMa
         field_names=s09.FIELD_NAMES,
         k_indices=(1, 1, 1),
         amplitude=0.25,
-        branch="plus",
+        branch="z_minus",
         params=config,
     )
 

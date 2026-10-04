@@ -1,4 +1,4 @@
-"""Exact-identity tests for the DCF / ACR channel diagnostics.
+"""Exact-identity tests for the Elsasser-wave and DCF / CCR / ACR channel diagnostics.
 
 These pin the channel diagnostics against the equations themselves; no closure
 or phenomenology is involved, so the tolerances are round-off level. The
@@ -16,12 +16,12 @@ import pytest
 from rmhdgpu.backend import build_backend
 from rmhdgpu.config import Config
 from rmhdgpu.diagnostics import compressive_channels as channels
-from rmhdgpu.diagnostics import alfvenic as alfvenic_diagnostics
 from rmhdgpu.equations import rmhd_by_nokia_rho, rmhd_by_nokia_s
 from rmhdgpu.fft import FFTManager
+from rmhdgpu.fourier_diagnostics import modal_average
 from rmhdgpu.grid import build_grid
 from rmhdgpu.masks import build_dealias_mask
-from rmhdgpu.operators import dx, dy, lap_perp
+from rmhdgpu.operators import dx, dy, inv_lap_perp, lap_perp
 from rmhdgpu.state import State
 from rmhdgpu.workspace import Workspace
 
@@ -42,6 +42,13 @@ PHYSICS = {
     "K_p0": 0.9,
     "K_rho0": 2.1,
 }
+
+# The channel columns, in the order `channel_scalar_diagnostics` writes them.
+CHANNEL_COLUMNS = [
+    "w_plus", "w_minus", "w_plus_kperp", "w_minus_kperp", "w_plus_kprl", "w_minus_kprl",
+    "w_plus_align", "w_minus_align", "u_perp_rms", "b_perp_rms", "q_dcf", "q_ccr_source",
+    "N_sq", "vA", "acr_B", "acr_g", "acr_th",
+]
 
 
 def _build_context(equation_set: str) -> tuple[Config, Any, Any, FFTManager, Workspace, Any]:
@@ -76,6 +83,30 @@ def _random_state(module: Any, backend: Any, grid: Any, fft: FFTManager, mask: A
     return state
 
 
+def _single_mode_context(backend_name: str) -> tuple[Any, Any, FFTManager]:
+    if backend_name == "scipy_cpu":
+        pytest.importorskip("scipy.fft")
+    if backend_name == "cupy":
+        cupy = pytest.importorskip("cupy")
+        try:
+            cupy.zeros(1)
+        except Exception as exc:
+            pytest.skip(f"GPU unavailable: {exc}")
+    config = Config(Nx=8, Ny=8, Nz=8, backend=backend_name)
+    backend = build_backend(config)
+    grid = build_grid(config, backend)
+    return backend, grid, FFTManager(grid, backend)
+
+
+def test_elsasser_potentials_follow_the_paper_convention() -> None:
+    """z+ = u_perp - b_perp has potential phi - psi; z- = u_perp + b_perp has phi + psi."""
+
+    phi, psi = np.array([3.0, 1.0]), np.array([0.5, 2.0])
+    z_plus, z_minus = channels.elsasser_potentials(phi, psi)
+    np.testing.assert_array_equal(z_plus, [2.5, -1.0])
+    np.testing.assert_array_equal(z_minus, [3.5, 3.0])
+
+
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
 def test_acr_channels_sum_to_stratification_source(equation_set: str) -> None:
     """The three ACR channels must reproduce the module's own `Y` source.
@@ -103,11 +134,15 @@ def test_elsasser_energies_sum_to_alfvenic_energy(equation_set: str) -> None:
     state = _random_state(module, backend, grid, fft, mask)
 
     fields = module.channel_fields(state, grid, config)
-    w_plus = channels.elsasser_energy(fields, grid, backend, sign=1)
-    w_minus = channels.elsasser_energy(fields, grid, backend, sign=-1)
+    z_plus_hat, z_minus_hat = channels.elsasser_potentials(fields.phi_hat, fields.psi_hat)
+    w_plus = channels.elsasser_energy(z_plus_hat, grid, backend)
+    w_minus = channels.elsasser_energy(z_minus_hat, grid, backend)
     expected = module.alfvenic_energy(state, grid, backend)
 
     assert w_plus + w_minus == pytest.approx(expected, rel=1.0e-12)
+    values = module.conserved_quantity_values(state, grid=grid, backend=backend, params=config)
+    assert values["w_plus"] == pytest.approx(w_plus, rel=1.0e-14)
+    assert values["w_minus"] == pytest.approx(w_minus, rel=1.0e-14)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
@@ -138,34 +173,30 @@ def test_dcf_matches_buoyancy_only_directional_derivative(equation_set: str) -> 
 
     This is the test that matters: it pins the closed-form
     `-(g/2)(<drho dy(phi)> - <drho dy(psi)>)` against the actual `-g dy(drho)`
-    term in `omega_t`, so a sign or factor error in either cannot pass.
+    term in `omega_t`, so a sign or factor error in either cannot pass. It also
+    pins the signs of the saved `q_dcf` and `q_ccr_source` columns.
     """
 
     module = EQUATION_MODULES[equation_set]
     config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
     state = _random_state(module, backend, grid, fft, mask)
     p = module.derived_parameters(config)
-
     fields = module.channel_fields(state, grid, config)
 
-    # An RHS state holding only the buoyancy coupling from `omega_t`.
-    buoyancy_rhs = state.zeros_like()
-    buoyancy_rhs.fill_zero()
-    buoyancy_rhs["omega"][...] = -p.g * dy(fields.drho_hat, grid)
-    rhs_fields = channels.rhs_channel_fields(buoyancy_rhs, grid)
+    # Buoyancy alone: omega_t = -g dy(drho), so phi_t = inv_lap_perp(omega_t), and psi_t = 0.
+    phi_t_hat = inv_lap_perp(-p.g * dy(fields.drho_hat, grid), grid)
+    z_plus_t_hat, z_minus_t_hat = channels.elsasser_potentials(phi_t_hat, 0.0 * fields.psi_hat)
+    z_plus_hat, z_minus_hat = channels.elsasser_potentials(fields.phi_hat, fields.psi_hat)
+    rate_plus = channels.elsasser_energy_rate(z_plus_hat, z_plus_t_hat, grid, backend)
+    rate_minus = channels.elsasser_energy_rate(z_minus_hat, z_minus_t_hat, grid, backend)
 
-    correlators = channels.gradient_correlators(fields, grid, backend)
-    closed_form = channels.buoyancy_work(correlators, p)
+    closed_form = channels.buoyancy_work(channels.gradient_correlators(fields, grid, backend), p)
+    assert rate_plus == pytest.approx(closed_form["w_plus"], rel=1.0e-11, abs=1.0e-15)
+    assert rate_minus == pytest.approx(closed_form["w_minus"], rel=1.0e-11, abs=1.0e-15)
 
-    for name, sign in (("w_plus", 1), ("w_minus", -1)):
-        measured = channels.elsasser_energy_rhs_budget(
-            fields,
-            rhs_fields,
-            grid,
-            backend,
-            sign=sign,
-        )
-        assert measured == pytest.approx(closed_form[name], rel=1.0e-11, abs=1.0e-15)
+    saved = channels.channel_scalar_diagnostics(fields, grid, backend, p)
+    assert saved["q_dcf"] == pytest.approx(-rate_plus, rel=1.0e-11, abs=1.0e-15)
+    assert saved["q_ccr_source"] == pytest.approx(-rate_minus, rel=1.0e-11, abs=1.0e-15)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
@@ -173,30 +204,28 @@ def test_elsasser_dissipation_sums_to_alfvenic_dissipation(equation_set: str) ->
     """`W+` and `W-` damping must add up to the Alfvenic part of `d_t E`.
 
     Uses unequal `omega` and `psi` operators so the cross term that mixes `W+`
-    and `W-` is genuinely nonzero and has to cancel in the sum.
+    and `W-` is genuinely nonzero and has to cancel in the sum. Goes through
+    `elsasser_budgets`, the path that writes the `w_*_rhs_dissipation` columns.
     """
 
     module = EQUATION_MODULES[equation_set]
     config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
     state = _random_state(module, backend, grid, fft, mask)
+    p = module.derived_parameters(config)
 
     linear_ops = {
         "omega": 0.03 * grid.kperp2,
         "psi": 0.07 * grid.kperp2,
     }
     fields = module.channel_fields(state, grid, config)
-    total = sum(
-        channels.elsasser_dissipation_rhs(fields, grid, backend, linear_ops, sign=sign)
-        for sign in (1, -1)
-    )
+    budgets = channels.elsasser_budgets(fields, grid, backend, p, linear_ops=linear_ops)
+    total = sum(budgets[name]["rhs_terms"]["dissipation"] for name in ("w_plus", "w_minus"))
 
     xp = backend.xp
     expected_density = (
         -linear_ops["omega"] * grid.kperp2 * (xp.abs(fields.phi_hat) ** 2)
         - linear_ops["psi"] * grid.kperp2 * (xp.abs(fields.psi_hat) ** 2)
     )
-    from rmhdgpu.fourier_diagnostics import modal_average
-
     expected = modal_average(expected_density, grid, backend)
     assert total == pytest.approx(expected, rel=1.0e-12)
 
@@ -210,41 +239,36 @@ def test_kperp_mean_is_a_sensible_outer_scale(equation_set: str) -> None:
     state = _random_state(module, backend, grid, fft, mask)
 
     fields = module.channel_fields(state, grid, config)
-    kperp_mean = channels.elsasser_kperp_mean(fields, grid, backend, sign=1)
+    z_plus_hat, _ = channels.elsasser_potentials(fields.phi_hat, fields.psi_hat)
+    kperp_mean = channels.elsasser_kperp_mean(z_plus_hat, grid, backend)
     kperp_max = float(backend.scalar_to_float(backend.xp.max(backend.xp.sqrt(grid.kperp2))))
 
     assert 0.0 < kperp_mean <= kperp_max
 
 
 @pytest.mark.parametrize("backend_name", ["numpy", "scipy_cpu", "cupy"])
-@pytest.mark.parametrize("sign", [1, -1])
-def test_elsasser_damping_matches_single_mode(backend_name, sign):
-    """Pin each branch's damping and normalization to an analytic wave."""
-    if backend_name == "scipy_cpu":
-        pytest.importorskip("scipy.fft")
-    if backend_name == "cupy":
-        cupy = pytest.importorskip("cupy")
-        try:
-            cupy.zeros(1)
-        except Exception as exc:
-            pytest.skip(f"GPU unavailable: {exc}")
-    config = Config(Nx=8, Ny=8, Nz=8, backend=backend_name)
-    backend = build_backend(config)
-    grid = build_grid(config, backend)
-    fft = FFTManager(grid, backend)
-    wave = backend.xp.cos(grid.x[:, None, None] + 2 * grid.y[None, :, None] + grid.z[None, None, :])
-    fields = channels.ChannelFields(phi_hat=fft.r2c(3 * wave), psi_hat=fft.r2c(0.5 * wave))
-    linear_ops = {"omega": 0.2, "psi": 0.7}
+@pytest.mark.parametrize("wave, amplitude, amplitude_t", [
+    # phi = 3 cos, psi = 0.5 cos and damping rates 0.2 (omega), 0.7 (psi), so
+    # f = phi ∓ psi = (3 ∓ 0.5) cos and f_t = (-0.6 ± 0.35) cos.
+    ("z_plus", 2.5, -0.25),
+    ("z_minus", 3.5, -0.95),
+])
+def test_elsasser_damping_matches_single_mode(backend_name, wave, amplitude, amplitude_t):
+    """Pin each wave's damping and normalization to an analytic mode, k = (1, 2, 1)."""
 
-    # f = (3 ∓ 0.5) cos(x+2y+z), f_t = (-0.6 ± 0.35) cos(x+2y+z).
-    # W = |k_perp|^2 A^2/8 and d_t W = |k_perp|^2 A A_t/4.
-    amplitude = 3 - sign * 0.5
-    amplitude_t = -0.6 + sign * 0.35
-    assert alfvenic_diagnostics.elsasser_energy(fields, grid, backend, sign=sign) == pytest.approx(
+    backend, grid, fft = _single_mode_context(backend_name)
+    cos = backend.xp.cos(grid.x[:, None, None] + 2 * grid.y[None, :, None] + grid.z[None, None, :])
+    phi_hat, psi_hat = fft.r2c(3 * cos), fft.r2c(0.5 * cos)
+    potentials = channels.elsasser_potentials(phi_hat, psi_hat)
+    rates = channels.elsasser_potentials(-0.2 * phi_hat, -0.7 * psi_hat)
+    index = 0 if wave == "z_plus" else 1
+
+    # W = |k_perp|^2 A^2/8 and d_t W = |k_perp|^2 A A_t/4, with |k_perp|^2 = 5.
+    assert channels.elsasser_energy(potentials[index], grid, backend) == pytest.approx(
         5 * amplitude**2 / 8
     )
-    assert alfvenic_diagnostics.elsasser_dissipation_rhs(
-        fields, grid, backend, linear_ops, sign=sign,
+    assert channels.elsasser_energy_rate(
+        potentials[index], rates[index], grid, backend,
     ) == pytest.approx(5 * amplitude * amplitude_t / 4)
 
 
@@ -255,35 +279,22 @@ def test_elsasser_damping_matches_single_mode(backend_name, sign):
     ((3, 0), 0.0),  # k along x, so z points along y.
 ])
 def test_x_alignment_matches_single_modes(backend_name, plus_k, expected):
-    """Each branch sees only its own wave, with rms(z_x)/rms(|z|) = |k_y|/|k_perp|."""
-    if backend_name == "scipy_cpu":
-        pytest.importorskip("scipy.fft")
-    if backend_name == "cupy":
-        cupy = pytest.importorskip("cupy")
-        try:
-            cupy.zeros(1)
-        except Exception as exc:
-            pytest.skip(f"GPU unavailable: {exc}")
-    config = Config(Nx=8, Ny=8, Nz=8, backend=backend_name)
-    backend = build_backend(config)
-    grid = build_grid(config, backend)
-    fft = FFTManager(grid, backend)
+    """Each wave sees only its own mode, with rms(z_x)/rms(|z|) = |k_y|/|k_perp|."""
+
+    backend, grid, fft = _single_mode_context(backend_name)
     x, y, z = grid.x[:, None, None], grid.y[None, :, None], grid.z[None, None, :]
     plus = 3 * backend.xp.cos(plus_k[0] * x + plus_k[1] * y + z)
     minus = 0.5 * backend.xp.cos(x + y + 2 * z)  # Isotropic in (k_x, k_y): 1/sqrt(2).
-    # The potentials are phi - psi = plus and phi + psi = minus.
-    fields = channels.ChannelFields(
-        phi_hat=fft.r2c(0.5 * (plus + minus)), psi_hat=fft.r2c(0.5 * (minus - plus)),
+    # Build phi and psi so that phi - psi = plus and phi + psi = minus.
+    z_plus_hat, z_minus_hat = channels.elsasser_potentials(
+        fft.r2c(0.5 * (plus + minus)), fft.r2c(0.5 * (minus - plus)),
     )
 
-    assert alfvenic_diagnostics.elsasser_x_alignment(
-        fields, grid, backend, sign=1,
-    ) == pytest.approx(expected, abs=1.0e-12)
-    assert alfvenic_diagnostics.elsasser_x_alignment(
-        fields, grid, backend, sign=-1,
-    ) == pytest.approx(1 / np.sqrt(2), rel=1.0e-12)
-    empty = channels.ChannelFields(phi_hat=0 * fields.phi_hat, psi_hat=0 * fields.psi_hat)
-    assert alfvenic_diagnostics.elsasser_x_alignment(empty, grid, backend, sign=1) == 0.0
+    assert channels.elsasser_x_alignment(z_plus_hat, grid, backend) == pytest.approx(expected, abs=1.0e-12)
+    assert channels.elsasser_x_alignment(z_minus_hat, grid, backend) == pytest.approx(
+        1 / np.sqrt(2), rel=1.0e-12,
+    )
+    assert channels.elsasser_x_alignment(0 * z_plus_hat, grid, backend) == 0.0
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
@@ -296,13 +307,85 @@ def test_x_alignment_matches_real_space_rms(equation_set):
     fields = module.channel_fields(state, grid, config)
     xp = backend.xp
 
-    for sign in (1, -1):
-        potential_hat = channels.elsasser_potential(fields, sign=sign)
+    for potential_hat in channels.elsasser_potentials(fields.phi_hat, fields.psi_hat):
         z_x = -fft.c2r(dy(potential_hat, grid))
         z_y = fft.c2r(dx(potential_hat, grid))
         expected = float(xp.sqrt(xp.mean(z_x**2) / xp.mean(z_x**2 + z_y**2)))
-        measured = channels.elsasser_x_alignment(fields, grid, backend, sign=sign)
+        measured = channels.elsasser_x_alignment(potential_hat, grid, backend)
         assert measured == pytest.approx(expected, rel=1.0e-12)
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_perp_rms_matches_real_space_and_elsasser_energies(equation_set):
+    """u_perp_rms and b_perp_rms equal real-space RMS, and u^2 + b^2 = 2 (W+ + W-)."""
+
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
+    state = _random_state(module, backend, grid, fft, mask)
+    fields = module.channel_fields(state, grid, config)
+    p = module.derived_parameters(config)
+    xp = backend.xp
+    diagnostics = channels.channel_scalar_diagnostics(fields, grid, backend, p)
+
+    for column, potential_hat in (("u_perp_rms", fields.phi_hat), ("b_perp_rms", fields.psi_hat)):
+        gx = fft.c2r(dx(potential_hat, grid))
+        gy = fft.c2r(dy(potential_hat, grid))
+        expected = float(xp.sqrt(xp.mean(gx**2 + gy**2)))
+        assert diagnostics[column] == pytest.approx(expected, rel=1.0e-12)
+    total = diagnostics["u_perp_rms"]**2 + diagnostics["b_perp_rms"]**2
+    assert total == pytest.approx(2 * (diagnostics["w_plus"] + diagnostics["w_minus"]), rel=1.0e-12)
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_background_drives_are_the_ideal_rhs_coefficients(equation_set):
+    """In a pure z+ state with no compressive fields, d_t f = F_f u_x for every field.
+
+    Here `ideal_rhs` reduces to the background-gradient terms alone, so each
+    compressive RHS, in the units of `slaved_field_units`, must equal the
+    Eq. (46) drive times u_x = -dy(phi). The s set evolves s, so drho_t is
+    derived from s_t and db_par_t exactly as the set derives drho from s.
+    """
+
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, workspace, mask = _build_context(equation_set)
+    xp = backend.xp
+    rng = np.random.default_rng(7)
+    psi_hat = fft.r2c(xp.asarray(rng.standard_normal(grid.real_shape).astype(grid.real_dtype)))
+    psi_hat *= mask * (grid.kperp2 > 0.0)
+    state = State(grid, backend, field_names=module.FIELD_NAMES)
+    state["psi"][...] = psi_hat
+    state["omega"][...] = -lap_perp(psi_hat, grid)  # phi = -psi: pure z+.
+    fields = module.channel_fields(state, grid, config)
+    z_plus_hat, z_minus_hat = channels.elsasser_potentials(fields.phi_hat, fields.psi_hat)
+    w_plus = channels.elsasser_energy(z_plus_hat, grid, backend)
+    assert channels.elsasser_energy(z_minus_hat, grid, backend) <= 1.0e-28 * w_plus
+
+    rhs = module.ideal_rhs(state, grid, fft, workspace, config, dealias_mask=mask)
+    if equation_set == "inhomogeneous_rmhd_s":
+        drho_t = module.derive_drho_hat(rhs["s"], rhs["db_par"], config)
+    else:
+        drho_t = rhs["drho"]
+    p = module.derived_parameters(config)
+    drives = channels.background_drives(p)
+    units = channels.slaved_field_units(p)
+    u_x = -dy(fields.phi_hat, grid)
+    scale = float(xp.max(xp.abs(u_x)))
+
+    for name, field_t in (("drho", drho_t), ("du_par", rhs["du_par"]), ("db_par", rhs["db_par"])):
+        assert drives[name] != 0.0, name
+        error = float(xp.max(xp.abs(field_t / units[name] - drives[name] * u_x)))
+        assert error <= 1.0e-12 * scale, name
+
+
+def test_background_drive_values_and_units():
+    # vA = 2, chi = 3, g = 4, K_p0 = 0.5, K_rho0 = 0.3, so alpha = 3/4 and K_b0 = 0.1.
+    physics = {"vA": 2.0, "cs2_over_vA2": 3.0, "g": 4.0, "K_p0": 0.5, "K_rho0": 0.3}
+    p = rmhd_by_nokia_rho.derived_parameters(physics)
+    assert channels.background_drives(p) == pytest.approx({"drho": -0.05, "du_par": -0.1, "db_par": 0.2})
+    assert channels.slaved_field_units(p) == pytest.approx({"drho": 1.0, "du_par": 2.0, "db_par": 0.75})
+    # The density drive is written without dividing by g, so it exists when g = 0.
+    p = rmhd_by_nokia_rho.derived_parameters({**physics, "g": 0.0})
+    assert channels.background_drives(p)["drho"] == pytest.approx(-0.3)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
@@ -313,8 +396,28 @@ def test_every_channel_column_is_documented(equation_set):
     diagnostics = channels.channel_scalar_diagnostics(
         module.channel_fields(state, grid, config), grid, backend, module.derived_parameters(config),
     )
-    assert {"w_plus_align", "w_minus_align"} <= set(diagnostics)
+    assert list(diagnostics) == CHANNEL_COLUMNS
+    assert list(channels.CHANNEL_SCALAR_DIAGNOSTIC_INFO) == CHANNEL_COLUMNS
     assert set(diagnostics) <= set(module.SCALAR_DIAGNOSTIC_INFO)
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_scalar_diagnostics_keep_the_budget_columns(equation_set):
+    """The instantaneous channel columns sit beside the W± and ACR budget columns."""
+
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, workspace, mask = _build_context(equation_set)
+    state = _random_state(module, backend, grid, fft, mask)
+    diagnostics = module.compute_equation_scalar_diagnostics(
+        state, grid=grid, fft=fft, backend=backend, params=config, workspace=workspace,
+    )
+    for name in ("w_plus", "w_minus"):
+        for term in ("buoyancy", "dissipation", "forcing", "total"):
+            assert f"{name}_rhs_{term}" in diagnostics
+    for channel in ("acr_B", "acr_g", "acr_th"):
+        assert diagnostics[f"total_energy_rhs_{channel}"] == pytest.approx(diagnostics[channel], rel=1.0e-12)
+    assert diagnostics["w_plus_rhs_buoyancy"] == pytest.approx(-diagnostics["q_dcf"], rel=1.0e-12)
+    assert not any(name.startswith("corr_") for name in diagnostics)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))

@@ -164,7 +164,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode-ky", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--mode-kz", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--mode-amplitude", type=float, default=argparse.SUPPRESS)
-    parser.add_argument("--mode-branch", choices=["plus", "minus"], default=argparse.SUPPRESS)
+    # No `choices`: the alfven_mode normalizer rejects bad names, including the renamed
+    # "plus"/"minus", with a message that says which branch to use instead.
+    parser.add_argument(
+        "--mode-branch",
+        default=argparse.SUPPRESS,
+        help="alfven_mode branch: z_plus (phi = -psi, the default) or z_minus (phi = +psi).",
+    )
     return parser
 
 

@@ -139,7 +139,7 @@ def test_alfvenic_single_mode_matches_exact_linear_evolution() -> None:
     config, backend, grid, fft, workspace, mask = _build_context()
     state0 = build_initial_state(
         "alfven_mode",
-        parameters={"k_indices": [1, 2, 1], "amplitude": 0.3, "branch": "plus"},
+        parameters={"k_indices": [1, 2, 1], "amplitude": 0.3, "branch": "z_minus"},
         grid=grid,
         backend=backend,
         fft=fft,
@@ -171,7 +171,7 @@ def test_alfvenic_alfven_mode_energy_matches_amplitude_squared() -> None:
     amplitude = 0.2
     state = build_initial_state(
         "alfven_mode",
-        parameters={"k_indices": [1, 1, 1], "amplitude": amplitude, "branch": "plus"},
+        parameters={"k_indices": [1, 1, 1], "amplitude": amplitude, "branch": "z_minus"},
         grid=grid,
         backend=backend,
         fft=fft,

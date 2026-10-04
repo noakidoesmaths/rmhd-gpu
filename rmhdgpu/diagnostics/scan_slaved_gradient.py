@@ -5,7 +5,8 @@ saturated compressive amplitudes with the Squire et al. (arXiv:2607.08036) Eq. (
 closure. This script only generates and launches the runs.
 
 Each compressive field feels a different combination of the background gradients, so there
-is no single "gradient" to scan. With `K_b0 = g/vA^2 - chi K_p0/gamma`,
+is no single "gradient" to scan. With `K_b0 = g/vA^2 - chi K_p0/gamma`, the drives of
+`rmhdgpu.diagnostics.compressive_channels.background_drives` are
 
     drho    F = g/(vA^2 (1 + chi)) - K_rho0        (= -N^2/g)
     du_par  F = -K_b0
@@ -40,6 +41,7 @@ try:
 except ModuleNotFoundError:  # Python < 3.11
     import tomli as tomllib
 
+from rmhdgpu.diagnostics.compressive_channels import background_drives
 from rmhdgpu.equations.rmhd_by_nokia_rho import derived_parameters
 from rmhdgpu.runfile import dump_toml
 
@@ -63,24 +65,8 @@ FIELDS = ("drho", "du_par", "db_par")
 
 # The fields whose drive each knob moves (see the table above), so each scan's figure only
 # shows panels that can have a slope. `test_slaved_gradient_scan.py` checks this against
-# `background_forcings`.
+# `background_drives`.
 FIELDS_DRIVEN_BY = {"K_rho0": ("drho",), "K_p0": ("du_par", "db_par"), "g": FIELDS}
-
-
-def background_forcings(p):
-    """The x components of Eq. (46), for a straight field and no mean flow.
-
-    Deliberately a copy of `vis.plot_slaved_projection.forcings` rather than an import: a
-    package module should not depend on the plotting layer. `test_slaved_gradient_scan.py`
-    asserts the two stay identical, so the duplication cannot drift unnoticed.
-    """
-
-    return {
-        # Equivalent to -N_sq/g, but also defined when g = 0.
-        "drho": p.g / (p.vA**2 * (1.0 + p.chi)) - p.K_rho0,
-        "du_par": -p.K_b0,
-        "db_par": -p.K_b0 + p.K_p0 / p.gamma,
-    }
 
 
 def load_base_document(path=BASE_INPUT):
@@ -131,10 +117,10 @@ def write_point_input(document, path):
 
 
 def describe_point(document):
-    """Return the derived parameters and the three forcings for one scan point."""
+    """Return the derived parameters and the three background drives for one scan point."""
 
     p = derived_parameters(document["physics"])
-    return p, background_forcings(p)
+    return p, background_drives(p)
 
 
 def marginal_K_rho0(p):

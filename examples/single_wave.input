@@ -1,14 +1,14 @@
 # `.input` files use TOML syntax.
 #
-# This reproduces the old `sanity_aw_packet` test as a normal case input.
-# The built-in `aw_packet` initializer creates the same large-amplitude
-# packet used there: a smooth `phi = psi` superposition of the first three
-# modes in each direction, normalized to unit RMS.
+# A band-limited random pure z+ state of the homogeneous s09 set
+# (`random_spectrum_one_wave`): phi = -psi, so only
+# z+ = delta u_perp - delta B_perp/sqrt(4 pi rho) is present, and the other
+# fields start at zero.
 #
 # Use:
-#   python -m rmhdgpu.run examples/aw_packet.input
-#   python vis/plot_scalars.py examples/outputs/scalar_diagnostics.csv
-#   python vis/plot_fullfield.py examples/outputs/fullfields --field psi --slice-dir z
+#   python -m rmhdgpu.run examples/single_wave.input
+#   python vis/plot_scalars.py examples/outputs_alfven_single/scalar_diagnostics.csv
+#   python vis/plot_fullfield.py examples/outputs_alfven_single/fullfields --field psi --slice-dir z
 
 title = "Qualitative Alfvén-wave packet translation"
 output_dir = "outputs_alfven_single"
