@@ -12,8 +12,8 @@ field is (vA^2/vS^2) delta B_parallel/B_0 (compressive_channels.slaved_field_uni
 
 Each panel also shows the slaved estimate of Eq. (47),
 |F| * l_perp * rms(z+_x)/z+_rms, averaged over the same window and logged the
-same way. It is computed by plot_slaved_projection.read_from_csv from the z+
-columns w_plus_kperp and w_plus_align; a CSV without them (for example one
+same way. It is computed by vis/run_quantities.py from the z+ columns
+k_perp_plus and w_plus_align; a CSV without them (for example one
 written before 2026-09-23) keeps only its measured point. Each series gets an
 ordinary least-squares line through its (log10|F|, log10 RMS) points, so the
 slope in the legend is the power-law exponent: 1 when the amplitude is
@@ -26,7 +26,6 @@ Examples (also usable as main([...]) in Spyder):
 
 import argparse
 import csv
-from glob import glob
 from pathlib import Path
 import sys
 
@@ -35,12 +34,11 @@ if __package__ in {None, ""}:
 
 import numpy as np
 
-from rmhdgpu.diagnostics.compressive_channels import background_drives, slaved_field_units
 from vis._matplotlib import finalize_figure, import_pyplot
-from vis.plot_slaved_projection import COLORS, LABELS, load_parameters, read_from_csv
+from vis.plot_slaved_projection import COLORS, LABELS
+from vis.run_quantities import FIELDS, load_run, resolve_run_dirs, time_window
 
 
-FIELDS = tuple(LABELS)
 TITLES = {"drho": "Density", "du_par": "Parallel velocity", "db_par": "Parallel magnetic field"}
 DRIVE_LABELS = {"drho": r"F_\rho", "du_par": r"F_u", "db_par": r"F_b"}
 MEASURED_LABEL = "Measured RMS"
@@ -49,59 +47,31 @@ SLAVED_LABEL = "Slaved estimate (Eq. 47)"
 
 def read_run(run_dir, fields, *, tmin=None, tail_fraction=0.4):
     """Return each field's drive, mean normalized RMS and mean slaved estimate in one window."""
-    run_dir = Path(run_dir)
-    p = load_parameters(run_dir)
-    drive = background_drives(p)
-    divisor = slaved_field_units(p)
-
-    csv_path = run_dir / "scalar_diagnostics.csv"
-    with csv_path.open(encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    if not rows:
-        raise ValueError(f"{csv_path}: no data rows.")
-    time_key = "time" if "time" in rows[0] else "t"
-    required = [time_key] + [f"{name}_rms" for name in fields]
-    missing = [name for name in required if name not in rows[0]]
-    if missing:
-        raise ValueError(f"{csv_path}: missing columns {missing}.")
-
-    times = np.array([float(row[time_key]) for row in rows])
-    if not np.isfinite(times).all() or np.any(np.diff(times) <= 0):
-        raise ValueError(f"{csv_path}: times must be finite and strictly increasing.")
-    if not 0 < tail_fraction <= 1:
-        raise ValueError("tail_fraction must be between 0 (exclusive) and 1.")
-    if tmin is not None and not np.isfinite(tmin):
-        raise ValueError("tmin must be finite.")
-    start = tmin if tmin is not None else times[-1] - tail_fraction * (times[-1] - times[0])
-    window = times >= start
-    if window.sum() < 2:
-        raise ValueError(f"{run_dir.name}: fewer than two samples in the averaging window.")
-
-    # The Eq. (47) estimate comes from the projection script, so its formula lives in one
-    # place. It is NaN where the CSV lacks the z+ columns it needs, and such a run still
-    # gives its measured points, just no estimate.
-    series = read_from_csv(run_dir, fields, p)
+    run = load_run(run_dir, fields)
+    try:
+        window = time_window(run.times, tmin=tmin, tail_fraction=tail_fraction)
+    except ValueError as error:
+        raise ValueError(f"{run.run_dir.name}: {error}") from None
 
     points = []
     for name in fields:
-        rms = np.array([float(row[f"{name}_rms"]) for row in rows])[window]
+        rms = run.measured[name][window]
         if not np.isfinite(rms).all() or np.any(rms < 0):
-            raise ValueError(f"{run_dir.name}: invalid {name}_rms in the averaging window.")
-        if not np.isfinite(divisor[name]) or divisor[name] <= 0 or not np.isfinite(drive[name]):
-            raise ValueError(f"{run_dir.name}: invalid normalization or drive for {name}.")
-        # Same samples and same arithmetic mean as the measured RMS, in the same units.
-        estimate = series.predicted[name][window]
+            raise ValueError(f"{run.run_dir.name}: invalid {name}_rms in the averaging window.")
+        # Same samples and same arithmetic mean as the measured RMS, in the same units. It is
+        # NaN where the CSV lacks the z+ columns it needs; such a run still gives its measured point.
+        estimate = run.predicted[name][window]
         slaved = float(estimate.mean()) if np.isfinite(estimate).all() else float("nan")
         if np.isnan(slaved):
-            print(f"{run_dir.name}: no finite slaved {name} estimate in the window; omitted.")
+            print(f"{run.run_dir.name}: no finite slaved {name} estimate in the window; omitted.")
         points.append({
-            "run_dir": str(run_dir),
+            "run_dir": str(run.run_dir),
             "field": name,
-            "forcing": drive[name],
-            "saturated_rms": float((rms / divisor[name]).mean()),
+            "forcing": run.drives[name],
+            "saturated_rms": float(rms.mean()),
             "slaved_rms": slaved,
-            "t_start": float(start),
-            "t_end": float(times[-1]),
+            "t_start": float(run.times[window][0]),
+            "t_end": float(run.times[window][-1]),
             "n_samples": int(window.sum()),
         })
     return points
@@ -218,18 +188,9 @@ def main(argv=None):
     parser.add_argument("--show", action="store_true", help="Display the saved figure.")
     args = parser.parse_args(argv)
 
-    run_dirs = []
-    for pattern in args.paths:
-        candidate = Path(pattern).expanduser()
-        matches = [candidate] if candidate.is_dir() else sorted(Path(path) for path in glob(str(candidate)))
-        if not matches or any(not path.is_dir() for path in matches):
-            parser.error(f"No matching run directories: {pattern}")
-        for path in matches:
-            if path.resolve() not in run_dirs:
-                run_dirs.append(path.resolve())
-
     points = []
     try:
+        run_dirs = resolve_run_dirs(args.paths)
         for run_dir in run_dirs:
             points.extend(read_run(run_dir, args.fields, tmin=args.tmin,
                                    tail_fraction=args.tail_fraction))

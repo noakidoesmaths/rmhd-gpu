@@ -14,7 +14,7 @@ Ly = 6.283185307179586
 Lz = 6.283185307179586
 
 [time]
-tmax = 60.0
+tmax = 100.0
 dt_init = 0.001
 cfl_number = 0.2
 use_variable_dt = true
@@ -22,7 +22,7 @@ use_variable_dt = true
 [output]
 t_out_scal = 0.02
 t_out_spec = 0.1
-t_out_full = 0.0
+t_out_full = 0.5
 
 [backend]
 backend = "scipy_cpu"

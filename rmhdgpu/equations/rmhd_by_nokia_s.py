@@ -611,11 +611,11 @@ def compute_conserved_quantity_budgets(
 
     p = derived_parameters(params)
     fields = channel_fields(state, grid, params)
-    correlators = channels.gradient_correlators(fields, grid, backend)
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, p)
 
     # The three ACR channels replace the single `stratification` term: they sum
     # to it exactly, so `total_energy_rhs_total` is unchanged.
-    rhs_terms: dict[str, float] = dict(channels.stratification_channels(correlators, p))
+    rhs_terms: dict[str, float] = {name: fluxes[name] for name in channels.ACR_CHANNELS}
     if linear_ops is not None:
         rhs_terms["dissipation"] = total_energy_dissipation_rhs(
             state,
@@ -638,9 +638,7 @@ def compute_conserved_quantity_budgets(
             "rhs_terms": rhs_terms,
         }
     }
-    budgets.update(channels.elsasser_budgets(
-        fields, grid, backend, p, linear_ops=linear_ops, correlators=correlators,
-    ))
+    budgets.update(channels.elsasser_budgets(fields, fluxes, grid, backend, linear_ops=linear_ops))
     if extra_rhs_terms is not None:
         for quantity_name in ("w_plus", "w_minus"):
             budgets[quantity_name]["rhs_terms"].update(

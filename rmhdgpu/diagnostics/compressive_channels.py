@@ -3,11 +3,16 @@
 Shared by `rmhd_by_nokia_rho` and `rmhd_by_nokia_s`, following Squire et al.,
 arXiv:2607.08036. Each equation module hands over its fields as `ChannelFields`.
 Everything here works on Fourier coefficients and does no FFTs, because the
-budgets are evaluated twice per time step.
+budgets are evaluated twice per time step. A box average of a product of two
+real fields, <a b>, is taken straight from their Fourier coefficients
+(Parseval) with `modal_inner_product_average`.
 
 Variables: `drho = delta rho/rho_0`, `db_par = delta B_par/B_0`, and `psi` is in
 Alfven (velocity) units, so `b_perp/vA = delta B_perp/B_0`. The background
-gradients point along x, with `u_x = -dy(phi)` and `b_x = -dy(psi)`.
+gradients point along x, and
+
+    u_perp = zhat x grad_perp(phi),   so u_x = -dy(phi)
+    b_perp = zhat x grad_perp(psi),   so b_x = -dy(psi)
 
 Elsasser fields, in the paper's convention:
 
@@ -47,25 +52,43 @@ from rmhdgpu.operators import dy
 CHANNEL_SCALAR_DIAGNOSTIC_INFO = {
     "w_plus": "Elsasser energy W+ = <|z+|^2>/4 of z+ = u_perp - b_perp, the launched wave.",
     "w_minus": "Elsasser energy W- = <|z-|^2>/4 of z- = u_perp + b_perp, the reflected wave.",
-    "w_plus_kperp": "Energy-weighted <k_perp> of z+; the closure outer scale is l_perp = 1/<k_perp>.",
-    "w_minus_kperp": "Energy-weighted <k_perp> of z-.",
-    "w_plus_kprl": "Energy-weighted <|k_par|> of z+; chi_A = 2 sqrt(W+) <k_perp> / (vA <k_par>).",
-    "w_minus_kprl": "Energy-weighted <|k_par|> of z-.",
+    "k_perp_plus": (
+        "Mean k_perp of z+, int k_perp E+ dk_perp / int E+ dk_perp, summed exactly over every mode "
+        "(no shell binning); the outer scale is l_perp = 1/k_perp_plus. Called w_plus_kperp before 2026-10-08."
+    ),
+    "k_perp_minus": "Mean k_perp of z-, as k_perp_plus. Called w_minus_kperp before 2026-10-08.",
+    "k_prl_plus": (
+        "Mean |k_par| of z+, int |k_par| E+ dk_par / int E+ dk_par; chi_A = z+_rms k_perp_plus / (vA k_prl_plus). "
+        "Called w_plus_kprl before 2026-10-08."
+    ),
+    "k_prl_minus": "Mean |k_par| of z-, as k_prl_plus. Called w_minus_kprl before 2026-10-08.",
     "w_plus_align": "rms(z+_x)/rms(|z+|): share of z+ along the gradient direction x; 1/sqrt(2) if isotropic. Eq. (47) factor.",
     "w_minus_align": "rms(z-_x)/rms(|z-|).",
     "u_perp_rms": "rms(|u_perp|) = sqrt(<|grad_perp phi|^2>); divide by vA for delta u_perp/vA.",
     "b_perp_rms": "rms(|b_perp|) = sqrt(<|grad_perp psi|^2>), Alfven units; divide by vA for delta B_perp/B_0.",
-    "q_dcf": "DCF heating rate -(d_t W+)|_buoyancy, instantaneous; positive while buoyancy drains z+.",
+    "V_rho_x": (
+        "x component of V_rho = <(delta rho/rho_0) delta u_perp> (paper Eq. 79), the density flux "
+        "across the background gradient; the closure predicts V_rho_x ~ eta_turb F_rho (Eq. 80). "
+        "Exact, so it includes the z- part: V_rho_x = <drho z+_x>/2 + <drho z-_x>/2. "
+        "Defined for every g, unlike acr_g/g."
+    ),
+    "q_dcf": (
+        "DCF heating rate -(d_t W+)|_buoyancy = -(g/2) <drho z+_x>, instantaneous; "
+        "positive while buoyancy drains z+."
+    ),
     "q_ccr_source": (
-        "-(d_t W-)|_buoyancy, instantaneous; NEGATIVE while buoyancy creates z- (the CCR source). "
-        "w_minus_rhs_buoyancy is the same term with the opposite sign, averaged over the output interval."
+        "-(d_t W-)|_buoyancy = -(g/2) <drho z-_x>, instantaneous; NEGATIVE while buoyancy creates z- "
+        "(the CCR source). w_minus_rhs_buoyancy is the same term with the opposite sign, averaged "
+        "over the output interval."
     ),
     "N_sq": "Run constant: Brunt-Vaisala frequency squared, N^2 = -g * F_rho. Positive is stable.",
     "vA": "Run constant: Alfven speed, echoed so plotting scripts need only the CSV.",
-    "acr_B": "Instantaneous ACR channel exchanging with background magnetic free energy (the paper's Y_B).",
-    "acr_g": "Instantaneous ACR channel exchanging with background potential energy (Y_g); buoyancy work on W+ plus W-.",
+    "acr_B": "Instantaneous ACR channel exchanging with background magnetic free energy (the paper's Y_B), -vA^2 K_b0 V_psi_x.",
+    "acr_g": "Instantaneous ACR channel exchanging with background potential energy (Y_g), g V_rho_x; buoyancy work on W+ plus W-.",
     "acr_th": "Instantaneous ACR channel exchanging with background thermal free energy (Y_th); not net heating.",
 }
+
+ACR_CHANNELS = ("acr_B", "acr_g", "acr_th")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,53 +121,59 @@ def elsasser_potentials(phi_hat: Any, psi_hat: Any) -> tuple[Any, Any]:
     return phi_hat - psi_hat, phi_hat + psi_hat
 
 
-def _modal_energy(f_hat: Any, grid: Any, backend: Any) -> Any:
-    """Fourier density of `W = <|grad_perp f|^2>/4` for one Elsasser potential f."""
-
-    return 0.25 * grid.kperp2 * backend.xp.abs(f_hat) ** 2
-
-
 def elsasser_energy(f_hat: Any, grid: Any, backend: Any) -> float:
-    """Return `W = <|z|^2>/4 = <k_perp^2 |f_hat|^2>/4` for the Elsasser potential f."""
+    """Return `W = <|z|^2>/4` for `z = zhat x grad_perp(f)`.
 
-    return modal_average(_modal_energy(f_hat, grid, backend), grid, backend)
+    `|z|^2 = |grad_perp f|^2`, which in Fourier space is `k_perp^2 |f_hat|^2`.
+    """
+
+    z_squared = modal_average(grid.kperp2 * backend.xp.abs(f_hat) ** 2, grid, backend)
+    return 0.25 * z_squared
 
 
 def elsasser_energy_rate(f_hat: Any, f_t_hat: Any, grid: Any, backend: Any) -> float:
     """Return `d_t W = <grad_perp f . grad_perp f_t>/2` when f changes at the rate f_t.
 
-    Each W± budget term is this rate, taken with the part of f_t that one RHS
-    term produces.
+    Each W± dissipation term is this rate, taken with the part of f_t that the
+    damping produces.
     """
 
     return 0.5 * modal_inner_product_average(grid.kperp2 * f_hat, f_t_hat, grid, backend)
 
 
-def _energy_weighted_mean(f_hat: Any, grid: Any, backend: Any, k_squared: Any) -> float:
-    """Mean of `sqrt(k_squared)` weighted by the modal energy of f; zero for an empty field."""
-
-    density = _modal_energy(f_hat, grid, backend)
-    energy = modal_average(density, grid, backend)
-    if not energy > 0.0:
-        return 0.0
-    return modal_average(backend.xp.sqrt(k_squared) * density, grid, backend) / energy
-
-
 def elsasser_kperp_mean(f_hat: Any, grid: Any, backend: Any) -> float:
-    """Return the energy-weighted `<k_perp>`; the closure outer scale is `l_perp = 1/<k_perp>`."""
+    """Return the energy-weighted mean k_perp of `z = zhat x grad_perp(f)`:
 
-    return _energy_weighted_mean(f_hat, grid, backend, grid.kperp2)
+        <k_perp> = sum_k |k_perp| E_k / sum_k E_k,    E_k = k_perp^2 |f_k|^2 / 4
+
+    The closure outer scale is `l_perp = 1/<k_perp>`. The sums run over every
+    mode with its exact |k_perp|. Rebuilding this from the shell-binned
+    spectra.csv uses shell centres instead and overestimates the outer-scale
+    k_perp by ~20% (the [1, 2) shell is labelled 1.5). An empty field returns 0.
+    """
+
+    E_k = 0.25 * grid.kperp2 * backend.xp.abs(f_hat) ** 2
+    W = modal_average(E_k, grid, backend)
+    if not W > 0.0:
+        return 0.0
+    return modal_average(backend.xp.sqrt(grid.kperp2) * E_k, grid, backend) / W
 
 
 def elsasser_kprl_mean(f_hat: Any, grid: Any, backend: Any) -> float:
-    """Return the energy-weighted `<|k_par|>`.
+    """Return the energy-weighted mean |k_par| of `z = zhat x grad_perp(f)`:
 
-    Together with `<k_perp>` this gives `chi_A = 2 sqrt(W) <k_perp> / (vA <k_par>)`.
+        <|k_par|> = sum_k |k_par| E_k / sum_k E_k,    E_k = k_perp^2 |f_k|^2 / 4
+
+    Together with `<k_perp>` this gives `chi_A = z_rms <k_perp> / (vA <|k_par|>)`.
     Modes in the k_par = 0 plane have no Alfven frequency, so chi_A cannot
-    describe them.
+    describe them. An empty field returns 0.
     """
 
-    return _energy_weighted_mean(f_hat, grid, backend, grid.kpar2)
+    E_k = 0.25 * grid.kperp2 * backend.xp.abs(f_hat) ** 2
+    W = modal_average(E_k, grid, backend)
+    if not W > 0.0:
+        return 0.0
+    return modal_average(backend.xp.sqrt(grid.kpar2) * E_k, grid, backend) / W
 
 
 def elsasser_x_alignment(f_hat: Any, grid: Any, backend: Any) -> float:
@@ -152,17 +181,16 @@ def elsasser_x_alignment(f_hat: Any, grid: Any, backend: Any) -> float:
 
     This is the projection factor in the slaving estimate, Eq. (47). It is not
     the dynamic alignment between z+ and z-. With `z = zhat x grad_perp f`,
-    `z_x = -dy(f)`, so by Parseval `<z_x^2>` is a sum of `k_y^2 |f_hat|^2` and
-    `<|z|^2>` a sum of `k_perp^2 |f_hat|^2`. The ratio is 1/sqrt(2) for energy
-    spread isotropically in the perpendicular plane (Eq. 48), 1 when z points
-    along x (k along y), and 0 when z points along y. An empty field returns 0.
+    `z_x = -dy(f)`. The ratio is 1/sqrt(2) for energy spread isotropically in
+    the perpendicular plane (Eq. 48), 1 when z points along x (k along y), and
+    0 when z points along y. An empty field returns 0.
     """
 
-    power = backend.xp.abs(f_hat) ** 2
-    z_squared = modal_average(grid.kperp2 * power, grid, backend)
+    z_x = -dy(f_hat, grid)
+    z_x_squared = modal_inner_product_average(z_x, z_x, grid, backend)  # <z_x^2>
+    z_squared = 4.0 * elsasser_energy(f_hat, grid, backend)  # <|z|^2>
     if not z_squared > 0.0:
         return 0.0
-    z_x_squared = modal_average(grid.ky**2 * power, grid, backend)
     return math.sqrt(z_x_squared / z_squared)
 
 
@@ -178,66 +206,82 @@ def perp_gradient_rms(potential_hat: Any, grid: Any, backend: Any) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Buoyancy and ACR channels, built from four correlators
+# Fluxes across the background gradient, and the buoyancy and ACR channels
 # ---------------------------------------------------------------------------
 
 
-def gradient_correlators(fields: ChannelFields, grid: Any, backend: Any) -> dict[str, float]:
-    """Return the four averages `<field dy(potential)>` every channel is built from.
+def fluxes_and_channels(fields: ChannelFields, grid: Any, backend: Any, p: Any) -> dict[str, float]:
+    """Return the fluxes across the background gradient and the channel rates built from them.
 
-    Since `u_x = -dy(phi)` and `b_x = -dy(psi)`, these are minus the fluxes
-    across the background gradient; for example `rho_phi = -<drho u_x>`.
+    Every line below is one equation; all are instantaneous box averages.
+
+        V_rho_x        = <drho u_x>                                   paper Eq. (79)
+        V_psi_x        = <db_par u_x> - <du_par b_x>/vA               paper Eq. (79)
+        V_rho_x_plus   = <drho z+_x>/2                                part carried by z+
+        V_rho_x_minus  = <drho z-_x>/2                                part carried by z-
+        d_t W+|_buoy   = g V_rho_x_plus     (minus this is q_dcf)
+        d_t W-|_buoy   = g V_rho_x_minus    (minus this is q_ccr_source)
+        acr_g          = g V_rho_x                                    Y_g
+        acr_B          = -vA^2 K_b0 V_psi_x                           Y_B
+        acr_th         = (vA^2 K_p0/gamma + w_s/chi) <db_par u_x> + w_s V_rho_x   Y_th
+
+    with `w_s = cs^2 K_s / (gamma (gamma - 1))`. Since u_x = (z+_x + z-_x)/2,
+    V_rho_x = V_rho_x_plus + V_rho_x_minus exactly. The paper's closure keeps
+    only the z+ part, `V_rho ~ <z+ drho>/2`, so V_rho_x_plus is that estimate's
+    left-hand side.
+
+    The three ACR channels sum to the equation module's
+    `total_energy_stratification_rhs`. Only acr_B + acr_g is net heating:
+    acr_th extracts background thermal free energy that dissipation later
+    returns as heat, so do not count it twice.
     """
 
-    dyphi_hat = dy(fields.phi_hat, grid)
-    dypsi_hat = dy(fields.psi_hat, grid)
+    def mean(a_hat: Any, b_hat: Any) -> float:
+        """Box average <a b> of two real fields, from their Fourier coefficients."""
+        return modal_inner_product_average(a_hat, b_hat, grid, backend)
+
+    drho = fields.drho_hat
+    du_par = fields.du_par_hat
+    db_par = fields.db_par_hat
+
+    # Components along the gradient direction x.
+    u_x = -dy(fields.phi_hat, grid)
+    b_x = -dy(fields.psi_hat, grid)
+    z_plus_x = u_x - b_x
+    z_minus_x = u_x + b_x
+
+    # Paper Eq. (79). psi is in Alfven units, so delta B_x/B_0 = b_x/vA.
+    V_rho_x = mean(drho, u_x)
+    V_psi_x = mean(db_par, u_x) - mean(du_par, b_x) / p.vA
+
+    # The part of V_rho_x carried by each wave.
+    V_rho_x_plus = 0.5 * mean(drho, z_plus_x)
+    V_rho_x_minus = 0.5 * mean(drho, z_minus_x)
+
+    # Buoyancy is the force g drho xhat on u_perp; the `-g dy(drho)` term in
+    # omega_t is its curl. It does not change psi, so d_t z± = d_t u_perp. The
+    # pressure that keeps u_perp incompressible does no work on the
+    # divergence-free z±, so
+    #     d_t W±|_buoyancy = <z± . (g drho xhat)>/2 = (g/2) <drho z±_x> = g V_rho_x±
+    w_plus_buoyancy = p.g * V_rho_x_plus
+    w_minus_buoyancy = p.g * V_rho_x_minus
+
+    # The three ACR channels: Y = acr_B + acr_g + acr_th.
+    w_s = p.cs2 * p.K_s / (p.gamma * (p.gamma - 1.0))
+    acr_B = -p.vA**2 * p.K_b0 * V_psi_x
+    acr_g = p.g * V_rho_x  # = w_plus_buoyancy + w_minus_buoyancy
+    acr_th = (p.vA**2 * p.K_p0 / p.gamma + w_s / p.chi) * mean(db_par, u_x) + w_s * V_rho_x
+
     return {
-        "rho_phi": modal_inner_product_average(dyphi_hat, fields.drho_hat, grid, backend),
-        "rho_psi": modal_inner_product_average(dypsi_hat, fields.drho_hat, grid, backend),
-        "b_phi": modal_inner_product_average(dyphi_hat, fields.db_par_hat, grid, backend),
-        "u_psi": modal_inner_product_average(dypsi_hat, fields.du_par_hat, grid, backend),
-    }
-
-
-def buoyancy_work(correlators: dict[str, float], p: Any) -> dict[str, float]:
-    """Return the buoyancy contributions to `d_t W+` and `d_t W-`.
-
-    The buoyancy term `omega_t = -g dy(drho)` gives `phi_t = inv_lap_perp(-g dy(drho))`
-    and `psi_t = 0`, so both Elsasser potentials change at the rate phi_t.
-    Integrating `elsasser_energy_rate` by parts gives
-
-        d_t W±|_buoyancy = -(g/2) <drho dy(phi ∓ psi)> = -(g/2) (rho_phi ∓ rho_psi)
-
-    The two add up to `-g <drho dy(phi)> = acr_g`. `q_dcf` is minus the W+ term.
-    """
-
-    return {
-        "w_plus": -0.5 * p.g * (correlators["rho_phi"] - correlators["rho_psi"]),
-        "w_minus": -0.5 * p.g * (correlators["rho_phi"] + correlators["rho_psi"]),
-    }
-
-
-def stratification_channels(correlators: dict[str, float], p: Any) -> dict[str, float]:
-    """Split the total-energy source Y into the three ACR channels:
-
-        acr_B  = vA^2 K_b0 <db_par dy(phi)> - vA K_b0 <du_par dy(psi)>                  (Y_B)
-        acr_g  = -g <drho dy(phi)>                                                      (Y_g)
-        acr_th = -(vA^2 K_p0/gamma + w_s/chi) <db_par dy(phi)> - w_s <drho dy(phi)>     (Y_th)
-
-    with `w_s = cs^2 K_s / (gamma (gamma - 1))`. They sum to the equation
-    module's `total_energy_stratification_rhs`. Only acr_B + acr_g is net
-    heating: acr_th extracts background thermal free energy that dissipation
-    later returns as heat, so do not count it twice.
-    """
-
-    entropy_weight = p.cs2 * p.K_s / (p.gamma * (p.gamma - 1.0))
-    return {
-        "acr_B": p.vA**2 * p.K_b0 * correlators["b_phi"] - p.vA * p.K_b0 * correlators["u_psi"],
-        "acr_g": -p.g * correlators["rho_phi"],
-        "acr_th": (
-            (-p.vA**2 * p.K_p0 / p.gamma - entropy_weight / p.chi) * correlators["b_phi"]
-            - entropy_weight * correlators["rho_phi"]
-        ),
+        "V_rho_x": V_rho_x,
+        "V_psi_x": V_psi_x,
+        "V_rho_x_plus": V_rho_x_plus,
+        "V_rho_x_minus": V_rho_x_minus,
+        "w_plus_buoyancy": w_plus_buoyancy,
+        "w_minus_buoyancy": w_minus_buoyancy,
+        "acr_B": acr_B,
+        "acr_g": acr_g,
+        "acr_th": acr_th,
     }
 
 
@@ -248,33 +292,31 @@ def stratification_channels(correlators: dict[str, float], p: Any) -> dict[str, 
 
 def elsasser_budgets(
     fields: ChannelFields,
+    fluxes: dict[str, float],
     grid: Any,
     backend: Any,
-    p: Any,
     *,
     linear_ops: dict[str, Any] | None = None,
-    correlators: dict[str, float] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Return the `w_plus` / `w_minus` budgets, value plus signed RHS terms.
 
-    Shaped for `rmhdgpu.diagnostics.budget.flatten_conserved_quantity_budgets`.
-    Buoyancy is the only ideal term that changes W±, and the run driver adds
-    forcing itself. Pass the correlators if they are already computed.
+    `fluxes` is the output of `fluxes_and_channels` for the same fields; the
+    budget's buoyancy terms are taken from it. Shaped for
+    `rmhdgpu.diagnostics.budget.flatten_conserved_quantity_budgets`. Buoyancy
+    is the only ideal term that changes W±, and the run driver adds forcing
+    itself.
     """
 
-    if correlators is None:
-        correlators = gradient_correlators(fields, grid, backend)
-    work = buoyancy_work(correlators, p)
     z_plus_hat, z_minus_hat = elsasser_potentials(fields.phi_hat, fields.psi_hat)
 
     budgets: dict[str, dict[str, Any]] = {
         "w_plus": {
             "value": elsasser_energy(z_plus_hat, grid, backend),
-            "rhs_terms": {"buoyancy": work["w_plus"]},
+            "rhs_terms": {"buoyancy": fluxes["w_plus_buoyancy"]},
         },
         "w_minus": {
             "value": elsasser_energy(z_minus_hat, grid, backend),
-            "rhs_terms": {"buoyancy": work["w_minus"]},
+            "rhs_terms": {"buoyancy": fluxes["w_minus_buoyancy"]},
         },
     }
     if linear_ops is not None:
@@ -305,32 +347,35 @@ def channel_scalar_diagnostics(
     `q_dcf`, `q_ccr_source` and `acr_*` repeat the `w_*_rhs_buoyancy` and
     `total_energy_rhs_acr_*` budget terms, which the driver averages over each
     output interval. They are kept instantaneous on purpose: the closure
-    estimates are built from `w_plus`, `w_plus_kperp` and `w_plus_align` in the
+    estimates are built from `w_plus`, `k_perp_plus` and `w_plus_align` in the
     same row, so measurement and prediction are taken at the same instant.
     """
 
-    correlators = gradient_correlators(fields, grid, backend)
-    work = buoyancy_work(correlators, p)
+    fluxes = fluxes_and_channels(fields, grid, backend, p)
     z_plus_hat, z_minus_hat = elsasser_potentials(fields.phi_hat, fields.psi_hat)
 
-    diagnostics: dict[str, float] = {
+    return {
         "w_plus": elsasser_energy(z_plus_hat, grid, backend),
         "w_minus": elsasser_energy(z_minus_hat, grid, backend),
-        "w_plus_kperp": elsasser_kperp_mean(z_plus_hat, grid, backend),
-        "w_minus_kperp": elsasser_kperp_mean(z_minus_hat, grid, backend),
-        "w_plus_kprl": elsasser_kprl_mean(z_plus_hat, grid, backend),
-        "w_minus_kprl": elsasser_kprl_mean(z_minus_hat, grid, backend),
+        "k_perp_plus": elsasser_kperp_mean(z_plus_hat, grid, backend),
+        "k_perp_minus": elsasser_kperp_mean(z_minus_hat, grid, backend),
+        "k_prl_plus": elsasser_kprl_mean(z_plus_hat, grid, backend),
+        "k_prl_minus": elsasser_kprl_mean(z_minus_hat, grid, backend),
         "w_plus_align": elsasser_x_alignment(z_plus_hat, grid, backend),
         "w_minus_align": elsasser_x_alignment(z_minus_hat, grid, backend),
         "u_perp_rms": perp_gradient_rms(fields.phi_hat, grid, backend),
         "b_perp_rms": perp_gradient_rms(fields.psi_hat, grid, backend),
-        "q_dcf": -work["w_plus"],
-        "q_ccr_source": -work["w_minus"],
+        # Only the x component is saved: every background gradient points
+        # along x, so the closure predicts V_rho_y ~ 0 and V_rho_x ~ eta_turb F_rho.
+        "V_rho_x": fluxes["V_rho_x"],
+        "q_dcf": -fluxes["w_plus_buoyancy"],
+        "q_ccr_source": -fluxes["w_minus_buoyancy"],
         "N_sq": float(p.N_sq),
         "vA": float(p.vA),
+        "acr_B": fluxes["acr_B"],
+        "acr_g": fluxes["acr_g"],
+        "acr_th": fluxes["acr_th"],
     }
-    diagnostics.update(stratification_channels(correlators, p))
-    return diagnostics
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 """Compare measured direct-compressive-feedback heating with the slaved closure.
 
-Reads scalar_diagnostics.csv from either inhomogeneous RMHD equation set.
+Reads scalar_diagnostics.csv from either inhomogeneous RMHD equation set; z+_rms
+and chi_A use the definitions in vis/run_quantities.py.
 For a straight field with no mean flow, Squire et al. (arXiv:2607.08036,
 Eqs. 18, 70-71) gives, for the launched wave z+ = delta u_perp - delta B_perp/sqrt(4 pi rho):
 
@@ -22,7 +23,6 @@ Examples (also usable as main([...]) in Spyder):
 from __future__ import annotations
 
 import argparse
-import csv
 from dataclasses import dataclass
 from pathlib import Path
 import sys
@@ -33,6 +33,7 @@ if __package__ in {None, ""}:
 import numpy as np
 
 from vis._matplotlib import finalize_figure, import_pyplot
+from vis.run_quantities import elsasser_rms, read_columns, turbulence_strength
 
 
 @dataclass
@@ -52,17 +53,6 @@ class RunSeries:
     tmin: float | None
 
 
-def read_scalar_csv(path):
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames is None:
-            raise SystemExit(f"{path} has no header row.")
-        rows = list(reader)
-    if not rows:
-        raise SystemExit(f"{path} contains no data rows.")
-    return {name: np.array([float(row[name]) for row in rows]) for name in reader.fieldnames}
-
-
 def safe_ratio(numerator, denominator):
     """Leave undefined ratios as NaN so they are omitted from curves and means."""
     return np.divide(numerator, denominator, out=np.full_like(numerator, np.nan, dtype=float),
@@ -71,27 +61,28 @@ def safe_ratio(numerator, denominator):
 
 def calculate_series(columns, chi_a=None, l_perp=None, tmin=None):
     """Calculate the DCF heating of z+ and its closure estimates, and average their ratio."""
-    time_key = "time" if "time" in columns else "t"
-    required = [time_key, "N_sq", "w_plus", "w_plus_kperp", "q_dcf"]
+    required = ["time", "N_sq", "w_plus", "k_perp_plus", "q_dcf"]
     missing = [name for name in required if name not in columns]
     if missing:
         raise SystemExit(f"Scalar diagnostics are missing {missing}.")
-    times = columns[time_key]
+    times = columns["time"]
     energy = columns["w_plus"]
-    kperp = columns["w_plus_kperp"]
-    kparallel = columns.get("w_plus_kprl")
+    kperp = columns["k_perp_plus"]
+    kparallel = columns.get("k_prl_plus")
     q_measured = columns["q_dcf"]
     n_sq = float(columns["N_sq"][0])
     v_a = float(columns["vA"][0]) if "vA" in columns else 1.0
 
-    # W = <|z|^2>/4, so z_rms = 2*sqrt(W) and omega_nl = z_rms/l_perp.
-    omega_nl = 2.0 * np.sqrt(energy) * kperp
+    # z_rms and chi_A come from run_quantities, so they match every other plot.
+    # omega_nl = z_rms / l_perp = z_rms * k_perp.
+    omega_nl = elsasser_rms(energy) * kperp
     q_from_measured_chi = safe_ratio(energy * n_sq, omega_nl)
-    chi_measured = None if kparallel is None else safe_ratio(omega_nl, v_a * kparallel)
+    chi_measured = None if kparallel is None else turbulence_strength(
+        elsasser_rms(energy), kperp, kparallel, v_a)
 
     if chi_a is not None:
         if kparallel is None:
-            raise SystemExit("--chi-a needs the w_plus_kprl column.")
+            raise SystemExit("--chi-a needs the k_prl_plus column.")
         if chi_a == 0.0:
             raise SystemExit("--chi-a must be nonzero.")
         q_predicted = safe_ratio(energy * n_sq, chi_a * v_a * kparallel)
@@ -176,7 +167,10 @@ def build_parser():
 def main(argv=None) -> Path:
     args = build_parser().parse_args(argv)
     csv_path = args.csv_path.expanduser().resolve()
-    columns = read_scalar_csv(csv_path)
+    try:
+        columns = read_columns(csv_path)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
     run = calculate_series(columns, chi_a=args.chi_a, l_perp=args.l_perp, tmin=args.tmin)
     output_path = (csv_path.with_name("dcf_measured_vs_predicted.png") if args.output is None
                    else args.output.expanduser().resolve())

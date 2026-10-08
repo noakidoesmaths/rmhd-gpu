@@ -41,7 +41,7 @@ backend = "scipy_cpu"
 [physics]
 vA = 1.0
 cs2_over_vA2 = 0.1
-K_rho0 = 6.0
+K_rho0 = 3.0
 g = 0.0
 K_p0 = 0.0
 

@@ -1,25 +1,35 @@
-"""Plot the mean density profile rho(x)/rho_ref from full-field HDF5 snapshots.
+"""Plot the plane-averaged density <rho>_yz(x) from full-field HDF5 snapshots, one curve per time.
 
-The solver evolves drho = delta rho / rho_0(x), with a fixed background
-rho_0(x) = rho_ref * exp(K_rho0 * x) (K_rho0 = d ln rho_0 / dx, gradient along x).
-The full density is therefore
+The background density rho_0 is a prescribed input, not something the solver measures or
+evolves. It is nearly uniform, with a small constant log-gradient along x,
+K_rho0 = d ln(rho_0)/dx, so grad(rho_0) ~ epsilon. The solver evolves only the relative
+fluctuation drho = delta rho / rho_0, measured against that initial background (the mean is
+NOT subtracted, so <drho>_yz is free to evolve; only the box mean is conserved at 0). The
+full density is rho = rho_0 * (1 + drho). To first order in epsilon, with rho_c the
+background density at the box centre x_c,
 
-    rho(x, y, z) / rho_ref = exp(K_rho0 * x) * (1 + drho(x, y, z)),
+    rho(x, y, z) / rho_c = 1 + K_rho0 * (x - x_c) + drho(x, y, z)
 
-which is only meaningful while |drho| << 1 (the equations are linearised in drho).
-This script plots, against x:
+(the cross term K*(x - x_c)*drho is O(epsilon^2), beyond what the equations resolve). Both
+terms are the same order. This script plots, against x:
 
-    background:  exp(K_rho0 * x)                      (drho = 0, no fluctuation)
-    mean:        exp(K_rho0 * x) * (1 + <drho>_yz)    (background + mean profile change)
+    reference:  1 + K_rho0 * (x - x_c)           (drho = 0, no fluctuation)
+    curves:     1 + K_rho0 * (x - x_c) + <drho>_yz   (reference + measured mean profile)
 
-<drho>_yz is the average over y and z, i.e. the ky = kz = 0 part of drho.
-K_rho0 is not stored in the snapshots; it is read from input_copy.input in the
-run directory (the parent of fullfields/) unless --k-rho0 is given.
+<drho>_yz is the average over y and z, i.e. the ky = kz = 0 part of drho; it is the only
+measured piece. With --fluctuation-only the tilt is dropped and <drho>_yz is plotted on its
+own against zero, which is easier to read when K_rho0 * Lx is large. The linear background
+needs |K_rho0| * Lx / 2 << 1; the script prints a note when that fails or when
+max |drho| >= 1 (the equations are linearised in drho).
+
+K_rho0 is not stored in the snapshots; it is read from input_copy.input in the run
+directory (the parent of fullfields/) unless --k-rho0 is given. Runs need t_out_full > 0
+to write snapshots.
 
 Examples (also usable as main([...]) in Spyder):
     python vis/plot_mean_density.py RUN_DIRECTORY/fullfields
-    python vis/plot_mean_density.py RUN_DIRECTORY/fullfields --k-rho0 1.5 --show
-    python vis/plot_mean_density.py RUN_DIRECTORY/fullfields --every 5
+    python vis/plot_mean_density.py RUN_DIRECTORY/fullfields --k-rho0 0.05 --show
+    python vis/plot_mean_density.py RUN_DIRECTORY/fullfields --every 5 --fluctuation-only
 """
 
 from __future__ import annotations
@@ -53,11 +63,26 @@ def read_k_rho0(snapshot_dir: Path) -> float | None:
     return None
 
 
+def box_length(x: np.ndarray) -> float:
+    """Length of the periodic box; the grid has no endpoint, so it is Nx * dx."""
+    return float(x.size * (x[1] - x[0]))
+
+
+def box_centre(x: np.ndarray) -> float:
+    """Middle of the box [x[0], x[0] + Lx). The centre is a convention: rho = rho_c there."""
+    return float(x[0] + 0.5 * box_length(x))
+
+
 def mean_density_profile(x: np.ndarray, drho: np.ndarray, k_rho0: float):
-    """Return (background, mean) rho/rho_ref profiles on the x grid; drho has shape (Nx, Ny, Nz)."""
-    background = np.exp(k_rho0 * x)
+    """Return (background, mean, drho_mean) on the x grid; drho has shape (Nx, Ny, Nz).
+
+    background = 1 + K_rho0 * (x - x_c)       rho_0 / rho_c, the prescribed background
+    drho_mean  = <drho>_yz                    the measured mean profile
+    mean       = background + drho_mean       <rho>_yz / rho_c, first order in epsilon
+    """
+    background = 1.0 + k_rho0 * (x - box_centre(x))
     drho_mean = drho.mean(axis=(1, 2))
-    return background, background * (1.0 + drho_mean), drho_mean
+    return background, background + drho_mean, drho_mean
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,6 +90,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("path", type=Path, help="Snapshot directory (fullfield_*.h5) or one .h5 file.")
     parser.add_argument("--k-rho0", type=float, default=None, help="Background log-gradient (default: read from input_copy.input).")
     parser.add_argument("--every", type=int, default=1, help="Plot every Nth snapshot.")
+    parser.add_argument("--fluctuation-only", action="store_true",
+                        help="Plot <drho>_yz alone against zero instead of <rho>_yz / rho_c.")
     parser.add_argument("--output", type=Path, default=None, help="Output image (default: mean_density.png next to the snapshots).")
     parser.add_argument("--show", action="store_true", help="Show the figure interactively.")
     return parser
@@ -101,17 +128,29 @@ def main(argv=None) -> None:
             x = np.asarray(handle["metadata/x"])
             drho = np.asarray(handle["output/drho"])
             time = float(handle["output/time"][()])
-        background, mean, _ = mean_density_profile(x, drho, k_rho0)
+        background, mean, drho_mean = mean_density_profile(x, drho, k_rho0)
         max_abs_drho = max(max_abs_drho, float(np.max(np.abs(drho))))
-        ax.plot(x, mean, color=color, label=f"t = {time:.3g}")
-    ax.plot(x, background, "k--", lw=1.5, label=r"background ($\delta\rho=0$)")
+        ax.plot(x, drho_mean if args.fluctuation_only else mean, color=color, label=f"t = {time:.3g}")
 
+    if args.fluctuation_only:
+        ax.plot(x, np.zeros_like(x), "k--", lw=1.5, label=r"no fluctuation ($\delta\rho=0$)")
+        ax.set_ylabel(r"$\langle\delta\rho/\rho_0\rangle_{yz}$")
+    else:
+        ax.plot(x, background, "k--", lw=1.5, label=r"background ($\delta\rho=0$)")
+        ax.set_ylabel(r"$\langle\rho\rangle_{yz}\,/\,\rho_c$")
     ax.set_xlabel("x")
-    ax.set_ylabel(r"$\langle\rho\rangle_{yz}\,/\,\rho_{\rm ref}$")
     ax.set_title(rf"Mean density, $K_{{\rho 0}}={k_rho0:g}$ (max $|\delta\rho/\rho_0|$ = {max_abs_drho:.2g})")
     if len(files) <= 12:
         ax.legend(fontsize=8)
     fig.tight_layout()
+
+    half_range = abs(k_rho0) * box_length(x) / 2.0
+    if half_range >= 1.0:
+        print(f"Note: |K_rho0| * Lx / 2 = {half_range:.3g} >= 1, so the linear background 1 + K_rho0 (x - x_c) "
+              "is not small (it reaches zero or below); the run is outside the small-gradient ordering.")
+    if max_abs_drho >= 1.0:
+        print(f"Note: max |drho| = {max_abs_drho:.3g} >= 1; the equations are linearised in drho, "
+              "so the fluctuation is not small.")
 
     output = args.output if args.output is not None else snapshot_dir / "mean_density.png"
     finalize_figure(fig, output_path=output, show=args.show, plt=plt)

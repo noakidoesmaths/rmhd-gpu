@@ -45,8 +45,8 @@ PHYSICS = {
 
 # The channel columns, in the order `channel_scalar_diagnostics` writes them.
 CHANNEL_COLUMNS = [
-    "w_plus", "w_minus", "w_plus_kperp", "w_minus_kperp", "w_plus_kprl", "w_minus_kprl",
-    "w_plus_align", "w_minus_align", "u_perp_rms", "b_perp_rms", "q_dcf", "q_ccr_source",
+    "w_plus", "w_minus", "k_perp_plus", "k_perp_minus", "k_prl_plus", "k_prl_minus",
+    "w_plus_align", "w_minus_align", "u_perp_rms", "b_perp_rms", "V_rho_x", "q_dcf", "q_ccr_source",
     "N_sq", "vA", "acr_B", "acr_g", "acr_th",
 ]
 
@@ -120,11 +120,11 @@ def test_acr_channels_sum_to_stratification_source(equation_set: str) -> None:
     state = _random_state(module, backend, grid, fft, mask)
 
     fields = module.channel_fields(state, grid, config)
-    correlators = channels.gradient_correlators(fields, grid, backend)
-    split = channels.stratification_channels(correlators, module.derived_parameters(config))
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, module.derived_parameters(config))
     expected = module.total_energy_stratification_rhs(state, grid, backend, config)
 
-    assert sum(split.values()) == pytest.approx(expected, rel=1.0e-11, abs=1.0e-14)
+    total = sum(fluxes[name] for name in channels.ACR_CHANNELS)
+    assert total == pytest.approx(expected, rel=1.0e-11, abs=1.0e-14)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
@@ -160,19 +160,18 @@ def test_buoyancy_work_sums_to_acr_g(equation_set: str) -> None:
     p = module.derived_parameters(config)
 
     fields = module.channel_fields(state, grid, config)
-    correlators = channels.gradient_correlators(fields, grid, backend)
-    work = channels.buoyancy_work(correlators, p)
-    split = channels.stratification_channels(correlators, p)
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, p)
 
-    assert work["w_plus"] + work["w_minus"] == pytest.approx(split["acr_g"], rel=1.0e-12)
+    total = fluxes["w_plus_buoyancy"] + fluxes["w_minus_buoyancy"]
+    assert total == pytest.approx(fluxes["acr_g"], rel=1.0e-12)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
 def test_dcf_matches_buoyancy_only_directional_derivative(equation_set: str) -> None:
     """`Q_DCF` must equal `-d_t W+` taken along the isolated buoyancy term.
 
-    This is the test that matters: it pins the closed-form
-    `-(g/2)(<drho dy(phi)> - <drho dy(psi)>)` against the actual `-g dy(drho)`
+    This is the test that matters: it pins the closed form
+    `d_t W± = (g/2) <drho z±_x>` against the actual `-g dy(drho)`
     term in `omega_t`, so a sign or factor error in either cannot pass. It also
     pins the signs of the saved `q_dcf` and `q_ccr_source` columns.
     """
@@ -190,9 +189,9 @@ def test_dcf_matches_buoyancy_only_directional_derivative(equation_set: str) -> 
     rate_plus = channels.elsasser_energy_rate(z_plus_hat, z_plus_t_hat, grid, backend)
     rate_minus = channels.elsasser_energy_rate(z_minus_hat, z_minus_t_hat, grid, backend)
 
-    closed_form = channels.buoyancy_work(channels.gradient_correlators(fields, grid, backend), p)
-    assert rate_plus == pytest.approx(closed_form["w_plus"], rel=1.0e-11, abs=1.0e-15)
-    assert rate_minus == pytest.approx(closed_form["w_minus"], rel=1.0e-11, abs=1.0e-15)
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, p)
+    assert rate_plus == pytest.approx(fluxes["w_plus_buoyancy"], rel=1.0e-11, abs=1.0e-15)
+    assert rate_minus == pytest.approx(fluxes["w_minus_buoyancy"], rel=1.0e-11, abs=1.0e-15)
 
     saved = channels.channel_scalar_diagnostics(fields, grid, backend, p)
     assert saved["q_dcf"] == pytest.approx(-rate_plus, rel=1.0e-11, abs=1.0e-15)
@@ -218,7 +217,8 @@ def test_elsasser_dissipation_sums_to_alfvenic_dissipation(equation_set: str) ->
         "psi": 0.07 * grid.kperp2,
     }
     fields = module.channel_fields(state, grid, config)
-    budgets = channels.elsasser_budgets(fields, grid, backend, p, linear_ops=linear_ops)
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, p)
+    budgets = channels.elsasser_budgets(fields, fluxes, grid, backend, linear_ops=linear_ops)
     total = sum(budgets[name]["rhs_terms"]["dissipation"] for name in ("w_plus", "w_minus"))
 
     xp = backend.xp
@@ -337,6 +337,60 @@ def test_perp_rms_matches_real_space_and_elsasser_energies(equation_set):
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_fluxes_match_real_space_averages(equation_set):
+    """Every flux equals its Eq. (79) average measured in real space.
+
+    Also pins the saved V_rho_x column, the z± split of V_rho_x, and the two
+    ACR channels written directly in terms of the fluxes.
+    """
+
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
+    state = _random_state(module, backend, grid, fft, mask)
+    fields = module.channel_fields(state, grid, config)
+    p = module.derived_parameters(config)
+    xp = backend.xp
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, p)
+    diagnostics = channels.channel_scalar_diagnostics(fields, grid, backend, p)
+
+    drho = fft.c2r(fields.drho_hat)
+    du_par = fft.c2r(fields.du_par_hat)
+    db_par = fft.c2r(fields.db_par_hat)
+    u_x = -fft.c2r(dy(fields.phi_hat, grid))
+    b_x = -fft.c2r(dy(fields.psi_hat, grid))
+    expected = {
+        "V_rho_x": float(xp.mean(drho * u_x)),
+        "V_psi_x": float(xp.mean(db_par * u_x - du_par * b_x / p.vA)),
+        "V_rho_x_plus": float(xp.mean(drho * (u_x - b_x))) / 2,
+        "V_rho_x_minus": float(xp.mean(drho * (u_x + b_x))) / 2,
+    }
+    for name, value in expected.items():
+        assert value != 0.0, name
+        assert fluxes[name] == pytest.approx(value, rel=1.0e-12), name
+
+    assert diagnostics["V_rho_x"] == fluxes["V_rho_x"]
+    assert fluxes["V_rho_x_plus"] + fluxes["V_rho_x_minus"] == pytest.approx(fluxes["V_rho_x"], rel=1.0e-12)
+    assert fluxes["acr_g"] == pytest.approx(p.g * fluxes["V_rho_x"], rel=1.0e-12)
+    assert fluxes["acr_B"] == pytest.approx(-p.vA**2 * p.K_b0 * fluxes["V_psi_x"], rel=1.0e-12)
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
+def test_pure_z_plus_carries_all_of_v_rho(equation_set):
+    """With z- = 0, V_rho_x = <drho z+_x>/2 exactly, the paper's closure form of Eq. (79)."""
+
+    module = EQUATION_MODULES[equation_set]
+    config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
+    state = _random_state(module, backend, grid, fft, mask)
+    state["omega"][...] = -lap_perp(state["psi"], grid)  # phi = -psi: pure z+.
+    fields = module.channel_fields(state, grid, config)
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, module.derived_parameters(config))
+
+    assert fluxes["V_rho_x"] != 0.0
+    assert fluxes["V_rho_x_plus"] == pytest.approx(fluxes["V_rho_x"], rel=1.0e-12)
+    assert abs(fluxes["V_rho_x_minus"]) <= 1.0e-14 * abs(fluxes["V_rho_x"])
+
+
+@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
 def test_background_drives_are_the_ideal_rhs_coefficients(equation_set):
     """In a pure z+ state with no compressive fields, d_t f = F_f u_x for every field.
 
@@ -418,17 +472,3 @@ def test_scalar_diagnostics_keep_the_budget_columns(equation_set):
         assert diagnostics[f"total_energy_rhs_{channel}"] == pytest.approx(diagnostics[channel], rel=1.0e-12)
     assert diagnostics["w_plus_rhs_buoyancy"] == pytest.approx(-diagnostics["q_dcf"], rel=1.0e-12)
     assert not any(name.startswith("corr_") for name in diagnostics)
-
-
-@pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
-def test_reused_correlators_preserve_budgets(equation_set):
-    module = EQUATION_MODULES[equation_set]
-    config, backend, grid, fft, _workspace, mask = _build_context(equation_set)
-    state = _random_state(module, backend, grid, fft, mask)
-    fields = module.channel_fields(state, grid, config)
-    p = module.derived_parameters(config)
-    correlators = channels.gradient_correlators(fields, grid, backend)
-    expected = channels.elsasser_budgets(fields, grid, backend, p)
-    reused = channels.elsasser_budgets(fields, grid, backend, p, correlators=correlators)
-    assert reused == expected
-    assert correlators == channels.gradient_correlators(fields, grid, backend)

@@ -5,8 +5,8 @@ import csv
 import numpy as np
 import pytest
 
-from rmhdgpu.diagnostics.compressive_channels import background_drives
 from vis import plot_slaved_projection as projection
+from vis.run_quantities import load_run
 
 
 FIELDS = ["drho", "du_par", "db_par"]
@@ -33,6 +33,7 @@ def write_columns(run_dir, columns):
 def write_old_csv(run_dir, time_column="time"):
     """An old-style CSV, written before the energy and alignment columns existed.
 
+    It also uses the old column names (t, w_plus_kperp), which load_run renames.
     Only db_par is present: selecting it must not require other RMS columns.
     """
     write_columns(run_dir, {time_column: [0, 1], "w_plus_kperp": [2, 4], "db_par_rms": [3, 6]})
@@ -47,8 +48,8 @@ def write_full_csv(run_dir):
     write_columns(run_dir, {
         "time": [0, 1, 2],
         "w_plus": [4, 1, 0], "w_minus": [1, 9, 0],
-        "w_plus_kperp": [4, 5, 0], "w_minus_kperp": [2, 2, 0],
-        "w_plus_kprl": [2, 2, 0], "w_minus_kprl": [1, 1, 0],
+        "k_perp_plus": [4, 5, 0], "k_perp_minus": [2, 2, 0],
+        "k_prl_plus": [2, 2, 0], "k_prl_minus": [1, 1, 0],
         "w_plus_align": [0.2, 0.4, 0], "w_minus_align": [0.9, 0.9, 0],
         "drho_rms": [1, 1, 1], "du_par_rms": [2, 2, 2], "db_par_rms": [3, 6, 3],
         "u_perp_rms": [2, 4, 0], "b_perp_rms": [1, 3, 0],
@@ -57,8 +58,7 @@ def write_full_csv(run_dir):
 
 def test_csv_uses_the_z_plus_scales_and_saved_alignment(run_dir, capsys):
     write_full_csv(run_dir)
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
+    run = load_run(run_dir, ["db_par"])
 
     assert capsys.readouterr().out == ""  # W+ > W- at t = 0, so no warning.
     np.testing.assert_allclose(run.l_perp, [0.25, 0.2, np.nan], equal_nan=True)
@@ -75,23 +75,20 @@ def test_csv_uses_the_z_plus_scales_and_saved_alignment(run_dir, capsys):
     np.testing.assert_allclose(run.z_ratio_predicted, [0.0625, 0.2, np.nan], equal_nan=True)
 
 
-def test_elsasser_and_perp_amplitudes_are_normalised_by_va(run_dir):
+def test_elsasser_and_perp_amplitudes_are_in_code_units(run_dir):
     write_full_csv(run_dir)
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
-    # z_rms = 2 sqrt(W): z+ = 4, 2, 0 and z- = 2, 6, 0, divided by vA = 2.
-    np.testing.assert_allclose(run.z_plus, [2, 1, 0])
-    np.testing.assert_allclose(run.z_minus, [1, 3, 0])
-    # b_perp is in Alfven units, so b_perp_rms/vA is delta B_perp/B_0.
-    np.testing.assert_allclose(run.u_perp, [1, 2, 0])
-    np.testing.assert_allclose(run.b_perp, [0.5, 1.5, 0])
+    run = load_run(run_dir, ["db_par"])
+    # z_rms = 2 sqrt(W): z+ = 4, 2, 0 and z- = 2, 6, 0. The panels divide by vA = 2.
+    np.testing.assert_allclose(run.z_plus, [4, 2, 0])
+    np.testing.assert_allclose(run.z_minus, [2, 6, 0])
+    np.testing.assert_allclose(run.u_perp, [2, 4, 0])
+    np.testing.assert_allclose(run.b_perp, [1, 3, 0])
 
 
 def test_a_run_that_starts_in_z_minus_is_flagged(run_dir, capsys):
     write_columns(run_dir, {"time": [0, 1], "w_plus": [1, 9], "w_minus": [4, 1],
-                            "w_plus_kperp": [2, 2], "db_par_rms": [3, 6]})
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
+                            "k_perp_plus": [2, 2], "db_par_rms": [3, 6]})
+    run = load_run(run_dir, ["db_par"])
     assert "W- > W+ at the first saved time" in capsys.readouterr().out
     np.testing.assert_allclose(run.z_ratio, [2, 1 / 3])  # Still z-/z+, never relabelled.
 
@@ -99,8 +96,7 @@ def test_a_run_that_starts_in_z_minus_is_flagged(run_dir, capsys):
 @pytest.mark.parametrize("time_column", ["time", "t"])
 def test_old_csv_leaves_the_eq47_estimate_empty(run_dir, time_column, capsys):
     write_old_csv(run_dir, time_column)
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
+    run = load_run(run_dir, ["db_par"])
     assert capsys.readouterr().out == ""
     assert set(run.measured) == set(run.predicted) == {"db_par"}
     np.testing.assert_allclose(run.times, [0, 1])
@@ -114,8 +110,7 @@ def test_old_csv_leaves_the_eq47_estimate_empty(run_dir, time_column, capsys):
 
 def test_old_csv_plots_the_measured_curve_and_names_the_empty_ones(run_dir, monkeypatch):
     write_old_csv(run_dir)
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
+    run = load_run(run_dir, ["db_par"])
     notes = []
 
     def capture_notes(fig, *, output_path, show, plt):
@@ -123,7 +118,7 @@ def test_old_csv_plots_the_measured_curve_and_names_the_empty_ones(run_dir, monk
         plt.close(fig)
 
     monkeypatch.setattr(projection, "finalize_figure", capture_notes)
-    projection.plot_series(run_dir, run, ["db_par"], p, run_dir / "unused.png")
+    projection.plot_series(run, ["db_par"], run_dir / "unused.png")
     field, reflection, elsasser, perp = notes
     assert field == ["No data in this CSV for:\nSlaved estimate (Eq. 47)"]
     assert len(reflection) == 1 and "Measured" in reflection[0]
@@ -132,10 +127,9 @@ def test_old_csv_plots_the_measured_curve_and_names_the_empty_ones(run_dir, monk
 
 
 def test_csv_measured_chi_and_title_average(run_dir, monkeypatch):
-    write_columns(run_dir, {"time": [0, 1, 2], "w_plus": [1, 4, 1], "w_plus_kperp": [2, 3, 2],
-                            "w_plus_kprl": [1, 1, 0], "db_par_rms": [3, 6, 3]})
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
+    write_columns(run_dir, {"time": [0, 1, 2], "w_plus": [1, 4, 1], "k_perp_plus": [2, 3, 2],
+                            "k_prl_plus": [1, 1, 0], "db_par_rms": [3, 6, 3]})
+    run = load_run(run_dir, ["db_par"])
     np.testing.assert_allclose(run.chi_a, [2, 6, np.nan], equal_nan=True)
 
     titles = []
@@ -145,18 +139,17 @@ def test_csv_measured_chi_and_title_average(run_dir, monkeypatch):
         plt.close(fig)
 
     monkeypatch.setattr(projection, "finalize_figure", capture_title)
-    projection.plot_series(run_dir, run, ["db_par"], p, run_dir / "unused.png")
+    projection.plot_series(run, ["db_par"], run_dir / "unused.png")
     assert r"mean measured $\chi_A$ = 4" in titles[-1]
     run.chi_a[:] = np.nan
-    projection.plot_series(run_dir, run, ["db_par"], p, run_dir / "unused.png")
+    projection.plot_series(run, ["db_par"], run_dir / "unused.png")
     assert r"mean measured $\chi_A$ = n/a" in titles[-1]
 
 
 def test_eq73_csv_values_and_zero_z_plus(run_dir):
     write_columns(run_dir, {"time": [0, 1, 2], "w_plus": [1, 4, 0], "w_minus": [0.25, 1, 9],
-                            "w_plus_kperp": [2, 4, 2], "drho_rms": [0.5, 1, 1], "db_par_rms": [3, 6, 3]})
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
+                            "k_perp_plus": [2, 4, 2], "drho_rms": [0.5, 1, 1], "db_par_rms": [3, 6, 3]})
+    run = load_run(run_dir, ["db_par"])
     np.testing.assert_allclose(run.z_ratio, [0.5, 0.5, np.nan], equal_nan=True)
     np.testing.assert_allclose(run.z_ratio_predicted, [0.25, 0.0625, np.nan], equal_nan=True)
 
@@ -166,9 +159,8 @@ def test_eq73_uses_abs_gravity(run_dir, gravity):
     write_full_csv(run_dir)
     path = run_dir / "input_copy.input"
     path.write_text(path.read_text().replace("g = 4.0", f"g = {gravity}"), encoding="utf-8")
-    p = projection.load_parameters(run_dir)
     # Density is still read for Eq. (73), even when only the db_par panel is selected.
-    run = projection.read_from_csv(run_dir, ["db_par"], p)
+    run = load_run(run_dir, ["db_par"])
     # l_perp |g| drho_rms / (4 W+), undefined once z+ vanishes in the last row.
     expected = [*(abs(gravity) * np.array([1 / 64, 1 / 20])), np.nan]
     np.testing.assert_allclose(run.z_ratio_predicted, expected, equal_nan=True)
@@ -176,8 +168,7 @@ def test_eq73_uses_abs_gravity(run_dir, gravity):
 
 def test_panels_show_the_fields_then_eq73_z_and_perp_amplitudes(run_dir, monkeypatch):
     write_full_csv(run_dir)
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, FIELDS, p)
+    run = load_run(run_dir, FIELDS)
     ratio_label = r"z^-_{\rm rms}/z^+_{\rm rms}"
 
     def check_figure(fig, *, output_path, show, plt):
@@ -193,16 +184,18 @@ def test_panels_show_the_fields_then_eq73_z_and_perp_amplitudes(run_dir, monkeyp
         assert "dimensionless" in ax.get_ylabel()
         np.testing.assert_allclose(ax.lines[0].get_ydata(), run.z_ratio)
         np.testing.assert_allclose(ax.lines[1].get_ydata(), run.z_ratio_predicted)
+        # Elsasser and perpendicular amplitudes are shown divided by vA = 2; b_perp is in
+        # Alfven units, so b_perp_rms/vA is delta B_perp/B_0.
         ax = visible[4]
-        np.testing.assert_allclose(ax.lines[0].get_ydata(), run.z_plus)
-        np.testing.assert_allclose(ax.lines[1].get_ydata(), run.z_minus)
+        np.testing.assert_allclose(ax.lines[0].get_ydata(), [2, 1, 0])
+        np.testing.assert_allclose(ax.lines[1].get_ydata(), [1, 3, 0])
         ax = visible[5]
-        np.testing.assert_allclose(ax.lines[0].get_ydata(), run.u_perp)
-        np.testing.assert_allclose(ax.lines[1].get_ydata(), run.b_perp)
+        np.testing.assert_allclose(ax.lines[0].get_ydata(), [1, 2, 0])
+        np.testing.assert_allclose(ax.lines[1].get_ydata(), [0.5, 1.5, 0])
         plt.close(fig)
 
     monkeypatch.setattr(projection, "finalize_figure", check_figure)
-    projection.plot_series(run_dir, run, FIELDS, p, run_dir / "unused.png")
+    projection.plot_series(run, FIELDS, run_dir / "unused.png")
 
 
 def test_cli_saves_selected_field(run_dir):
@@ -279,8 +272,8 @@ progress_output_every = 100
         rows = list(csv.DictReader(handle))
     assert len(rows) == 3
     for row in rows:
-        assert float(row["w_plus_kperp"]) == pytest.approx(np.sqrt(5), rel=1.0e-12)
-        assert float(row["w_plus_kprl"]) == pytest.approx(1.0, rel=1.0e-12)
+        assert float(row["k_perp_plus"]) == pytest.approx(np.sqrt(5), rel=1.0e-12)
+        assert float(row["k_prl_plus"]) == pytest.approx(1.0, rel=1.0e-12)
         assert float(row["w_plus_align"]) == pytest.approx(2 / np.sqrt(5), rel=1.0e-12)
         # u^2 + b^2 = 2 (W+ + W-) exactly. The wave starts as pure z+ (|u| = |b|);
         # the background gradients couple it weakly to the compressive fields, so
@@ -291,11 +284,10 @@ progress_output_every = 100
         assert u == pytest.approx(b, rel=1.0e-4)
     assert float(rows[0]["w_minus"]) <= 1.0e-28 * float(rows[0]["w_plus"])
 
-    p = projection.load_parameters(run_dir)
-    run = projection.read_from_csv(run_dir, FIELDS, p)
+    run = load_run(run_dir, FIELDS)
     np.testing.assert_allclose(run.l_perp, 1 / np.sqrt(5), rtol=1.0e-12)
     np.testing.assert_allclose(run.alignment, 2 / np.sqrt(5), rtol=1.0e-12)
-    drives = background_drives(p)
+    drives = run.drives
     assert all(drives[name] != 0.0 for name in FIELDS)
     for name in FIELDS:
         np.testing.assert_allclose(run.predicted[name], 0.4 * abs(drives[name]), rtol=1.0e-12)

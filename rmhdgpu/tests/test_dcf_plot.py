@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from vis import plot_dcf as dcf
+from vis.run_quantities import read_columns
 
 
 @pytest.fixture
@@ -16,10 +17,10 @@ def columns():
             "time": [0, 1, 2],
             "w_plus": [1, 4, 9],
             "w_minus": [0.25, 1, 2.25],
-            "w_plus_kperp": [2, 3, 4],
-            "w_minus_kperp": [1, 2, 3],
-            "w_plus_kprl": [1, 2, 3],
-            "w_minus_kprl": [0.5, 1, 1.5],
+            "k_perp_plus": [2, 3, 4],
+            "k_perp_minus": [1, 2, 3],
+            "k_prl_plus": [1, 2, 3],
+            "k_prl_minus": [0.5, 1, 1.5],
             "q_dcf": [0, 8, 18],
             "q_ccr_source": [3, 6, 9],
             "N_sq": [12, 12, 12],
@@ -41,7 +42,7 @@ def test_measured_closure_and_energy_normalization(columns):
 
 
 def test_only_the_z_plus_columns_are_needed(columns):
-    for name in ("w_minus", "w_minus_kperp", "w_minus_kprl", "q_ccr_source"):
+    for name in ("w_minus", "k_perp_minus", "k_prl_minus", "q_ccr_source"):
         del columns[name]
     np.testing.assert_allclose(dcf.calculate_series(columns).q_predicted, [3, 4, 4.5])
 
@@ -62,14 +63,14 @@ def test_legacy_csv_without_parallel_scale_or_alfven_speed(columns):
     series = dcf.calculate_series(columns)
     np.testing.assert_allclose(series.q_predicted, [3, 4, 4.5])
     assert series.mean_chi_a == pytest.approx(6)
-    del columns["w_plus_kprl"]
+    del columns["k_prl_plus"]
     series = dcf.calculate_series(columns)
     np.testing.assert_allclose(series.q_predicted, [3, 4, 4.5])
     assert np.isnan(series.mean_chi_a)
 
 
 def test_zero_parallel_wavenumber_keeps_gaps_and_direct_reference(columns):
-    columns["w_plus_kprl"] = np.array([0.0, 2.0, 0.0])
+    columns["k_prl_plus"] = np.array([0.0, 2.0, 0.0])
     series = dcf.calculate_series(columns)
     np.testing.assert_allclose(series.q_predicted, [np.nan, 4, np.nan], equal_nan=True)
     assert series.mean_prefactor == pytest.approx(2)
@@ -109,7 +110,7 @@ def test_stratification_sign(columns, n_sq):
     np.testing.assert_allclose(series.q_fixed_scale, np.array([3, 6, 9]) * n_sq / 12)
 
 
-@pytest.mark.parametrize("missing", ["N_sq", "w_plus", "w_plus_kperp", "q_dcf"])
+@pytest.mark.parametrize("missing", ["N_sq", "w_plus", "k_perp_plus", "q_dcf"])
 def test_missing_columns_have_clear_errors(columns, missing):
     del columns[missing]
     with pytest.raises(SystemExit, match=missing):
@@ -119,20 +120,21 @@ def test_missing_columns_have_clear_errors(columns, missing):
 def test_invalid_assumed_chi_has_clear_errors(columns):
     with pytest.raises(SystemExit, match="nonzero"):
         dcf.calculate_series(columns, chi_a=0)
-    del columns["w_plus_kprl"]
-    with pytest.raises(SystemExit, match="w_plus_kprl"):
+    del columns["k_prl_plus"]
+    with pytest.raises(SystemExit, match="k_prl_plus"):
         dcf.calculate_series(columns, chi_a=1)
 
 
-def test_csv_reader_and_cli_png(tmp_path, columns):
-    # Older diagnostics use "t" in place of "time".
-    columns["t"] = columns.pop("time")
+def test_old_column_names_and_cli_png(tmp_path, columns):
+    # CSVs written before 2026-10-08 use "t" and the w_plus_k* names; the shared reader renames them.
+    old_names = {"time": "t", "k_perp_plus": "w_plus_kperp", "k_prl_plus": "w_plus_kprl"}
+    old_columns = {old_names.get(name, name): values for name, values in columns.items()}
     csv_path = tmp_path / "scalar_diagnostics.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(columns)
-        writer.writerows(zip(*columns.values()))
-    loaded = dcf.read_scalar_csv(csv_path)
+        writer.writerow(old_columns)
+        writer.writerows(zip(*old_columns.values()))
+    loaded = read_columns(csv_path)
     for name, expected in columns.items():
         np.testing.assert_array_equal(loaded[name], expected)
     output = tmp_path / "plots" / "dcf.png"

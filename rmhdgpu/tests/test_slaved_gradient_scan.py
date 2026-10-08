@@ -9,7 +9,7 @@ import pytest
 from rmhdgpu.diagnostics import scan_slaved_gradient as driver
 from rmhdgpu.diagnostics.compressive_channels import background_drives
 from vis import plot_slaved_gradient_scan as scan
-from vis import plot_slaved_projection as projection
+from vis.run_quantities import load_run
 
 
 FIELDS = ["drho", "du_par", "db_par"]
@@ -51,7 +51,7 @@ def write_run(run_dir, *, physics=None, times=None, measured=None, kperp=2.0, tm
     extra_row = [] if alignment is None else [alignment]
     with (run_dir / "scalar_diagnostics.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["time", "w_plus_kperp", *[f"{name}_rms" for name in FIELDS], *extra_header])
+        writer.writerow(["time", "k_perp_plus", *[f"{name}_rms" for name in FIELDS], *extra_header])
         for time, value in zip(times, values):
             writer.writerow([time, kperp, value, value, value, *extra_row])
     return run_dir
@@ -82,22 +82,22 @@ def test_read_run_uses_field_forcings_and_normalizations_without_z_plus_diagnost
     assert all(point["n_samples"] == 5 for point in points.values())
     assert all(point["t_start"] == pytest.approx(6.0) for point in points.values())
     assert all(point["t_end"] == pytest.approx(10.0) for point in points.values())
-    # Without w_plus_kperp there is no Eq. (47) estimate, but the measured points survive.
+    # Without k_perp_plus there is no Eq. (47) estimate, but the measured points survive.
     assert all(np.isnan(point["slaved_rms"]) for point in points.values())
 
 
 def test_slaved_estimate_uses_the_z_plus_scales_in_the_measured_window(tmp_path):
     run = write_run(tmp_path / "window")
     # kperp and the alignment change at t = 5, so only the window's values may count.
-    write_scalar_csv(run, ["time", "w_plus_kperp", "w_plus_align", "drho_rms"],
+    write_scalar_csv(run, ["time", "k_perp_plus", "w_plus_align", "drho_rms"],
                      [[t, 1.0 if t < 5 else 4.0, 0.9 if t < 5 else 0.5, 3.0] for t in range(10)])
     point = scan.read_run(run, ["drho"], tmin=5.0)[0]
     # |F_rho| = 10.2, l_perp = 1/4 and alignment 0.5 in the window.
     assert point["slaved_rms"] == pytest.approx(10.2 * 0.25 * 0.5)
 
     # The z- columns are never used, even when z- is the stronger wave.
-    write_scalar_csv(run, ["time", "w_plus", "w_minus", "w_plus_kperp", "w_plus_align",
-                           "w_minus_kperp", "w_minus_align", "drho_rms"],
+    write_scalar_csv(run, ["time", "w_plus", "w_minus", "k_perp_plus", "w_plus_align",
+                           "k_perp_minus", "w_minus_align", "drho_rms"],
                      [[t, 1.0, 9.0, 2.0, 0.5, 4.0, 0.9, 3.0] for t in range(10)])
     point = scan.read_run(run, ["drho"])[0]
     assert point["slaved_rms"] == pytest.approx(10.2 * 0.5 * 0.5)
@@ -114,7 +114,8 @@ def test_tail_window_is_selected_by_time_then_uses_the_sample_mean(tmp_path):
     values = [100.0] * 6 + [2.0, 4.0, 8.0]
     run = write_run(tmp_path / "uneven", times=times, measured=values)
     point = scan.read_run(run, ["drho"], tail_fraction=0.5)[0]
-    assert point["t_start"] == pytest.approx(5.0)
+    # The window starts at t = 5; t_start reports the first saved time inside it.
+    assert point["t_start"] == pytest.approx(6.0)
     assert point["n_samples"] == 3
     assert point["saturated_rms"] == pytest.approx(14.0 / 3.0)
 
@@ -254,11 +255,10 @@ def test_slaved_mean_matches_projection_over_the_same_tail_for_every_field(tmp_p
     run = write_run(tmp_path / "time_varying", physics={
         "vA": 2.0, "cs2_over_vA2": 1.0, "g": 4.0, "K_p0": 5.0, "K_rho0": 1.5,
     })
-    write_scalar_csv(run, ["time", "w_plus", "w_minus", "w_plus_kperp", "w_plus_align",
+    write_scalar_csv(run, ["time", "w_plus", "w_minus", "k_perp_plus", "w_plus_align",
                            "drho_rms", "du_par_rms", "db_par_rms"],
                      [[t, 9.0, 1.0, 1.0 + t, 0.1 + 0.05 * t, 4.0, 8.0, 3.0] for t in range(11)])
-    parameters = projection.load_parameters(run)
-    series = projection.read_from_csv(run, FIELDS, parameters)
+    series = load_run(run, FIELDS)
     points = scan.read_run(run, FIELDS)
     window = series.times >= 6.0
     for point in points:
@@ -271,7 +271,7 @@ def test_slaved_mean_matches_projection_over_the_same_tail_for_every_field(tmp_p
 
 def test_nonfinite_slaved_tail_keeps_the_measurement_without_using_earlier_estimates(tmp_path):
     run = write_run(tmp_path / "missing_slaved_tail", measured=3.0)
-    write_scalar_csv(run, ["time", "w_plus_kperp", "w_plus_align", "drho_rms"],
+    write_scalar_csv(run, ["time", "k_perp_plus", "w_plus_align", "drho_rms"],
                      [[t, 2.0, 0.5 if t < 6 else np.nan, 3.0] for t in range(11)])
     point = scan.read_run(run, ["drho"])[0]
     assert point["saturated_rms"] == pytest.approx(3.0)
