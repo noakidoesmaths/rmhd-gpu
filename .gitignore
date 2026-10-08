@@ -19,6 +19,7 @@ dcgm-*.out
 examples/outputs_*/
 examples/nokias_inhomo_rho.input
 examples/nokias_inhomo_s.input
+examples/rho_Kp0_*
 
 # Ignore generated files
 *.log
