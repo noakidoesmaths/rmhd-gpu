@@ -756,3 +756,37 @@ def compute_equation_scalar_diagnostics(
         rhs_terms.setdefault("forcing", 0.0)
     diagnostics.update(flatten_conserved_quantity_budgets(budgets))
     return diagnostics
+
+
+# Controlled forcing acts on the Alfvénic pair only, exactly as in s09. The
+# shared standard hooks apply unchanged because this module has the same
+# Alfvénic sector as s09:
+#   - omega = lap_perp(phi), so zeta+/- = phi -/+ psi gives the native branch
+#     vorticities W+/- = omega +/- k_perp^2 psi;
+#   - the Alfvénic energy is the unweighted 0.5 * k_perp^2 (|phi|^2 + |psi|^2)
+#     with no psi/omega cross terms against the other fields, so the work done
+#     on a branch is exactly the change in total_energy;
+#   - the psi/omega block of linear_matrix is the s09 one, so z+ travels at +vA.
+# With nonzero background gradients (K_rho0, K_p0, g) z+/- are not linear
+# eigenmodes: the controller sets z+ itself, but energy put into z+ also
+# leaks linearly into z- and the compressive fields.
+from rmhdgpu.forcing_fields import (
+    standard_metric as forcing_metric,
+    standard_native_parameters as forcing_native_parameters,
+    standard_energy_factors as forcing_energy_factors,
+    standard_branch_values as forcing_branch_values,
+    standard_apply_gain as forcing_apply_gain,
+    standard_seed_branch as forcing_seed_branch,
+    standard_characteristic_speed as forcing_characteristic_speed,
+    standard_budget_work as forcing_budget_work,
+    vorticity_shell_density as forcing_shell_density,
+    vorticity_perpendicular_energy as forcing_perpendicular_energy,
+    vorticity_perpendicular_shell_energy as forcing_perpendicular_shell_energy,
+    vorticity_measurement as forcing_measurement,
+)
+
+
+def forcing_fields(config):
+    """Map controlled Elsasser branches to this module's evolved fields."""
+    from rmhdgpu.forcing_fields import alfvenic_fields
+    return alfvenic_fields(config, velocity="omega", magnetic="psi")

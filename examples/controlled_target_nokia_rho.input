@@ -1,0 +1,88 @@
+# Plus-only target-amplitude forcing on the inhomogeneous RMHD (rho) equations,
+# with the background gradients used in the K_rho0 scan runs.
+# The controller holds the rms z+ amplitude near target_value; with nonzero
+# gradients some of the injected z+ also leaks linearly into z- and the
+# compressive fields. Try a few tau_F values to see which holds the amplitude.
+title = "Nokia rho controlled forcing: target amplitude"
+output_dir = "outputs/controlled_target_nokia_rho"
+
+[equations]
+type = "inhomogeneous_rmhd_rho"
+mode = "nonlinear"
+
+[grid]
+Nx = 32
+Ny = 32
+Nz = 32
+
+[time]
+tmax = 20.0
+dt_init = 1.0e-3
+use_variable_dt = true
+cfl_number = 0.2
+
+[output]
+t_out_scal = 0.02
+t_out_spec = 0.1
+t_out_full = 0.0
+
+[backend]
+backend = "scipy_cpu"
+
+[runtime]
+progress_output_every = 100
+project_kpar0 = false
+
+[physics]
+vA = 1.0
+cs2_over_vA2 = 0.1
+K_rho0 = 3.5
+g = 0.06
+K_p0 = 1.0
+
+[initial_condition]
+type = "zero"
+
+[forcing]
+use_forcing = true
+type = "controlled_shell"
+forcing_seed = 20260904
+
+# k_sigma_min/max are the k_perp edges of the forced shell, kz_index is the
+# forced k_z mode, and branches picks z+ ("plus") and/or z- ("minus").
+[forcing.controlled_shell]
+k_sigma_min = 2
+k_sigma_max = 3
+kz_index = 1
+branches = ["plus"]
+min_forced_modes = 8
+phase_model = "none"
+phase_angle_max = 0.5
+log_gain_target = 0.05
+log_gain_warn = 0.1
+
+# target_value: rms z+ amplitude to aim for. tau_F: relaxation time towards it.
+# startup_energy_fraction = 1 starts the run at the target amplitude.
+# ring_floor_fraction limits how hard it can damp after an overshoot.
+[forcing.controlled_shell.plus]
+control = "target"
+target_scope = "branch_total"
+target_basis = "elsasser"
+target_quantity = "rms"
+target_value = 0.2
+tau_F = 5.235987755982989
+startup_energy_fraction = 1.0
+ring_floor_fraction = 0.01
+
+[dissipation]
+mode = "auto"
+n_perp = 3
+n_par = 3
+nu_par = 0.0
+kd_fraction = 0.8
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1.0e-12
+nu_max = 1.0e-2
+max_update_factor = 2.0

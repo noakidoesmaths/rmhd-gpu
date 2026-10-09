@@ -330,8 +330,11 @@ reinterpreted as powers; historical stochastic runs require their pinned source.
 #### Controlled shell forcing
 
 Controlled forcing rescales one branch in a perpendicular Fourier band at a
-selected nonzero parallel harmonic. It supports the `alfvenic`, `s09`, and
-`low_beta_stratified` equations. A plus-only control changes `phi - psi` while
+selected nonzero parallel harmonic. It supports the `alfvenic`, `s09`,
+`low_beta_stratified`, `inhomogeneous_rmhd_rho`, and `inhomogeneous_rmhd_s`
+equations. With nonzero background gradients in the inhomogeneous sets, z± are
+not linear eigenmodes, so energy put into one branch also leaks linearly into
+the other branch and the compressive fields. A plus-only control changes `phi - psi` while
 preserving `phi + psi` to roundoff, including an already nonzero minus branch.
 
 For example, control the physical plus RMS towards 0.2:
@@ -371,6 +374,7 @@ Runnable examples:
 ```bash
 python -m rmhdgpu.run examples/controlled_target_s09.input
 python -m rmhdgpu.run examples/controlled_power_alfvenic.input
+python -m rmhdgpu.run examples/controlled_target_nokia_rho.input
 ```
 
 ### Dissipation
