@@ -38,17 +38,18 @@ fft_workers = 8
 
 [forcing]
 use_forcing = true
+forcing_mode = "elsasser"
 n_min_force = 1.0
 n_max_force = 3.0
 alpha_force = 0.5
 forcing_seed = 1234
+epsilon_plus = 0.35
+epsilon_minus = 0.35
 
-[forcing.force_amplitudes]
-psi = 1.0
-omega = 1.0
-upar = 0.03
-dbpar = 0.03
-s = 0.02
+[forcing.field_energy_injection_rates]
+upar = 5e-4
+dbpar = 1e-3
+s = 1e-4
 
 [initial_condition]
 type = "zero"

@@ -45,7 +45,7 @@ fft_workers = 4
 use_forcing = true
 forcing_seed = 7
 
-[forcing.force_amplitudes]
+[forcing.field_energy_injection_rates]
 psi = 0.05
 
 [dissipation.psi]
@@ -68,8 +68,8 @@ n_par = 1
     assert settings.config.fft_workers == 4
     assert settings.config.use_forcing is True
     assert settings.config.forcing_seed == 7
-    assert settings.config.force_amplitudes["psi"] == 0.05
-    assert settings.config.force_amplitudes["omega"] == 0.0
+    assert settings.config.field_energy_injection_rates["psi"] == 0.05
+    assert settings.config.field_energy_injection_rates["omega"] == 0.0
     assert settings.config.dissipation["psi"]["nu_perp"] == 0.005
     assert settings.config.dissipation["omega"]["nu_perp"] == 0.0
 
@@ -124,7 +124,7 @@ Nz = 8
 use_forcing = true
 forcing_seed = 22
 
-[forcing.force_amplitudes]
+[forcing.field_energy_injection_rates]
 psi = 0.02
 omega = 0.03
 
@@ -139,8 +139,8 @@ type = "zero"
 
     assert settings.config.use_forcing is True
     assert settings.config.forcing_seed == 22
-    assert settings.config.force_amplitudes["psi"] == 0.02
-    assert settings.config.force_amplitudes["omega"] == 0.03
+    assert settings.config.field_energy_injection_rates["psi"] == 0.02
+    assert settings.config.field_energy_injection_rates["omega"] == 0.03
     assert settings.initial_condition.type == "zero"
 
 
@@ -166,6 +166,44 @@ def test_mode_branch_names_the_elsasser_wave(tmp_path) -> None:
             runfile_path=args.input_file,
             cli_overrides=cli_overrides_from_args(args),
         )
+def test_elsasser_forcing_runfile_parses(tmp_path) -> None:
+    input_file = tmp_path / "imbalanced.input"
+    input_file.write_text(
+        """
+[equations]
+type = "alfvenic"
+
+[forcing]
+use_forcing = true
+forcing_mode = "elsasser"
+epsilon_plus = 0.8
+epsilon_minus = 0.2
+forcing_seed = 91
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    settings = resolve_run_settings(runfile_path=input_file)
+
+    assert settings.config.forcing_mode == "elsasser"
+    assert settings.config.epsilon_plus == 0.8
+    assert settings.config.epsilon_minus == 0.2
+    assert settings.resolved_document["forcing"]["epsilon_plus"] == 0.8
+    assert "force_amplitudes" not in settings.resolved_document["forcing"]
+
+
+def test_legacy_force_amplitudes_is_rejected(tmp_path) -> None:
+    path = tmp_path / "legacy.input"
+    path.write_text("[forcing.force_amplitudes]\npsi = 0.1\nomega = 0.2\n")
+    with pytest.raises(ValueError, match="force_amplitudes"):
+        resolve_run_settings(runfile_path=path)
+
+
+def test_removed_force_sigma_cli_is_rejected() -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        build_parser().parse_args(["--force-sigma", "0.1"])
+    assert excinfo.value.code == 2
 
 
 def test_initial_condition_parameter_table_parses_and_overrides_defaults(tmp_path) -> None:

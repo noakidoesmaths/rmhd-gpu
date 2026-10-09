@@ -8,7 +8,33 @@ from __future__ import annotations
 
 from typing import Any
 
-from rmhdgpu.operators import dx, dy, inv_lap_perp
+from rmhdgpu.fourier_diagnostics import modal_average
+from rmhdgpu.operators import inv_lap_perp
+from rmhdgpu.operators import dx, dy
+
+
+def alfvenic_phi_hat(
+    state: Any,
+    grid: Any,
+    equation_module: Any | None = None,
+) -> Any:
+    """Return the velocity-potential transform for a state with an Alfvénic sector.
+
+    Equation sets may evolve ``phi`` directly or evolve ``omega`` and provide
+    ``derive_phi_hat(omega_hat, grid)``. The standard RMHD inverse-Laplacian
+    relation is used as a fallback for existing ``omega``-based states.
+    """
+
+    if "phi" in state.field_names:
+        return state["phi"]
+    if "omega" not in state.field_names:
+        raise ValueError(
+            "Alfvenic diagnostics require a 'psi' field and either a 'phi' or "
+            "'omega' field."
+        )
+    if equation_module is not None and hasattr(equation_module, "derive_phi_hat"):
+        return equation_module.derive_phi_hat(state["omega"], grid)
+    return inv_lap_perp(state["omega"], grid)
 
 
 def _perp_gradients(phi_hat: Any, psi_hat: Any, grid: Any, fft: Any) -> dict[str, Any]:
@@ -20,8 +46,13 @@ def _perp_gradients(phi_hat: Any, psi_hat: Any, grid: Any, fft: Any) -> dict[str
     }
 
 
-def _alfvenic_gradients(state: Any, grid: Any, fft: Any) -> dict[str, Any]:
-    phi_hat = inv_lap_perp(state["omega"], grid)
+def _alfvenic_gradients(
+    state: Any,
+    grid: Any,
+    fft: Any,
+    equation_module: Any | None = None,
+) -> dict[str, Any]:
+    phi_hat = alfvenic_phi_hat(state, grid, equation_module)
     return _perp_gradients(phi_hat, state["psi"], grid, fft)
 
 
@@ -31,8 +62,8 @@ def _state_and_rhs_gradients(
     grid: Any,
     fft: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    phi_hat = inv_lap_perp(state["omega"], grid)
-    phi_t_hat = inv_lap_perp(rhs_state["omega"], grid)
+    phi_hat = alfvenic_phi_hat(state, grid)
+    phi_t_hat = alfvenic_phi_hat(rhs_state, grid)
     gradients = _perp_gradients(phi_hat, state["psi"], grid, fft)
     gradients_t = _perp_gradients(phi_t_hat, rhs_state["psi"], grid, fft)
     return gradients, gradients_t
@@ -131,3 +162,55 @@ def alfvenic_cross_helicity_rhs_budget(
     )
     return _mean_float(backend, cross_budget)
 
+
+def elsasser_energies(
+    state: Any,
+    grid: Any,
+    backend: Any | None = None,
+    equation_module: Any | None = None,
+) -> dict[str, float]:
+    """Return volume-averaged Elsasser energies and imbalance diagnostics.
+
+    The potential convention is fixed to
+
+    ``zeta_plus = phi - psi`` and ``zeta_minus = phi + psi``.
+
+    The reported energies are
+
+    ``E_plus/minus = 0.5 <|grad_perp zeta_plus/minus|^2>``.
+
+    Therefore the package Alfvénic energy is ``0.5 * (E_plus + E_minus)`` and
+    its normalized cross-helicity is
+    ``(E_minus - E_plus) / (E_plus + E_minus)`` for this potential convention.
+    """
+
+    if "psi" not in state.field_names:
+        raise ValueError("Elsasser diagnostics require an evolved 'psi' field.")
+    backend_obj = state.backend if backend is None else backend
+    xp = backend_obj.xp
+    phi_hat = alfvenic_phi_hat(state, grid, equation_module)
+    zeta_plus_hat = phi_hat - state["psi"]
+    zeta_minus_hat = phi_hat + state["psi"]
+    energy_plus = modal_average(
+        0.5 * grid.kperp2 * xp.abs(zeta_plus_hat) ** 2,
+        grid,
+        backend_obj,
+    )
+    energy_minus = modal_average(
+        0.5 * grid.kperp2 * xp.abs(zeta_minus_hat) ** 2,
+        grid,
+        backend_obj,
+    )
+    energy_sum = energy_plus + energy_minus
+    if energy_sum == 0.0:
+        ratio = 1.0
+        normalized_cross_helicity = 0.0
+    else:
+        ratio = float("inf") if energy_minus == 0.0 else energy_plus / energy_minus
+        normalized_cross_helicity = (energy_minus - energy_plus) / energy_sum
+    return {
+        "elsasser_energy_plus": float(energy_plus),
+        "elsasser_energy_minus": float(energy_minus),
+        "elsasser_energy_ratio": float(ratio),
+        "normalized_cross_helicity": float(normalized_cross_helicity),
+    }

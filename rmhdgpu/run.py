@@ -26,6 +26,7 @@ from rmhdgpu.diagnostics.scalar import compute_scalar_diagnostics
 from rmhdgpu.errors import NonFiniteStateError
 from rmhdgpu.equations import available_equation_sets, get_equation_module
 from rmhdgpu.fft import FFTManager
+from rmhdgpu import forcing_control
 from rmhdgpu.forcing import apply_forcing_kick, generate_forcing_kick
 from rmhdgpu.grid import build_grid
 from rmhdgpu.initconds import build_initial_state, list_initial_condition_types
@@ -148,7 +149,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--N2", type=float, default=argparse.SUPPRESS)
 
     parser.add_argument("--use-forcing", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
-    parser.add_argument("--force-sigma", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--forcing-mode", choices=["field", "elsasser"], default=argparse.SUPPRESS)
+    parser.add_argument("--epsilon-plus", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--epsilon-minus", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--forcing-seed", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--n-min-force", dest="n_min_force", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--n-max-force", dest="n_max_force", type=float, default=argparse.SUPPRESS)
@@ -282,7 +285,7 @@ def _zero_poisson_bracket(
     return out
 
 
-def run_simulation(settings: RunSettings) -> dict[str, Any]:
+def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
     """Run one resolved case and write standard outputs."""
 
     config = settings.config
@@ -319,6 +322,17 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     "full_field": config.t_out_full,
                 },
                 "dissipation_mode": config.auto_dissipation.mode,
+                "forcing": {
+                    "enabled": config.use_forcing,
+                    "mode": config.forcing_mode,
+                    "epsilon_plus": config.epsilon_plus,
+                    "epsilon_minus": config.epsilon_minus,
+                    "field_energy_injection_rates": {
+                        name: epsilon
+                        for name, epsilon in config.field_energy_injection_rates.items()
+                        if epsilon != 0.0
+                    },
+                },
                 "initial_condition": settings.initial_condition.to_document(),
             },
         )
@@ -337,6 +351,14 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
             field_names=settings.config.field_names,
             params=settings.config,
         )
+        controlled_forcing = None
+        if config.use_forcing and config.forcing_type == "controlled_shell":
+            controlled_forcing = forcing_control.create_control(config, grid, backend, equation_module, mask)
+            forcing_control.initialize(controlled_forcing, state)
+        forcing_event_writer = None
+        if controlled_forcing is not None:
+            forcing_control.write_metadata(controlled_forcing, output_dir)
+            forcing_event_writer = ScalarDiagnosticsWriter(output_dir / "forcing_events.csv")
         auto_dissipation_controller = None
         auto_dissipation_diagnostics = disabled_auto_dissipation_diagnostics()
         if config.auto_dissipation.enabled:
@@ -397,10 +419,15 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
         next_spectra_output = initial_output_time(config.t_out_spec)
         next_fullfield_output = initial_output_time(config.t_out_full)
         dt_last = config.dt_init
-        forcing_rng = backend.random_generator(config.forcing_seed) if config.use_forcing else None
+        forcing_rng = backend.random_generator(config.forcing_seed) if config.use_forcing and controlled_forcing is None else None
         track_budget = scalar_writer is not None
         budget_interval_duration = 0.0
         budget_interval_terms: dict[str, dict[str, float]] = {}
+
+        def _observe(event, sample, time, dt, events=None):
+            if observer is not None:
+                observer(event, state=sample, backend=backend, controller=controlled_forcing,
+                         time=time, dt=dt, events=[] if events is None else events)
 
         def _instantaneous_budget_terms(sample_state: State) -> dict[str, dict[str, float]]:
             budgets = equation_module.compute_conserved_quantity_budgets(
@@ -508,7 +535,8 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                     equation_module=equation_module,
                     linear_ops=linear_ops,
                     budget_rhs_terms=_averaged_budget_terms(),
-                    extra_scalar_diagnostics=auto_dissipation_diagnostics,
+                    extra_scalar_diagnostics={**auto_dissipation_diagnostics,
+                        **({} if controlled_forcing is None else forcing_control.diagnostics(controlled_forcing, state))},
                 )
                 scalar_writer.write_row(row)
                 logger.event(
@@ -609,6 +637,7 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
 
             _write_due_diagnostics(dt_value=0.0)
 
+            _observe("startup", state, t, 0.)
             while t < config.tmax - 1.0e-15:
                 if config.use_variable_dt:
                     dt = compute_cfl_timestep(
@@ -627,13 +656,24 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                 if track_budget:
                     budget_before = _instantaneous_budget_terms(state)
 
+                _observe("pre_step", state, t, dt)
                 stepped_state = if_ssprk3_step(state, dt, rhs_func, linear_ops, rhs_kwargs=rhs_kwargs)
+                _observe("post_step", stepped_state, t+dt, dt)
 
                 if track_budget:
                     budget_after = _instantaneous_budget_terms(stepped_state)
                     _accumulate_budget_terms(budget_before, budget_after, dt)
 
-                if config.use_forcing:
+                events = []
+                if controlled_forcing is not None:
+                    state = stepped_state
+                    events = forcing_control.advance(controlled_forcing, state, dt, t+dt, final=t+dt >= config.tmax-1e-15)
+                    for event in events:
+                        forcing_event_writer.write_row(event)
+                        if track_budget:
+                            for quantity, work in equation_module.forcing_budget_work(event).items():
+                                _accumulate_budget_kick(quantity, "forcing", work)
+                elif config.use_forcing:
                     forcing_values_before = (
                         _conserved_quantity_values(stepped_state) if track_budget else {}
                     )
@@ -647,6 +687,7 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                         dt,
                         workspace=workspace,
                         out=workspace.get_state_buffer("forcing_kick", stepped_state.field_names),
+                        equation_module=equation_module,
                     )
                     state = apply_forcing_kick(stepped_state, forcing_kick, inplace=True)
                     if track_budget:
@@ -674,6 +715,7 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
                             _conserved_quantity_values(state),
                         )
 
+                _observe("post_forcing", state, t+dt, dt, events)
                 if track_budget:
                     budget_interval_duration += dt
 
@@ -705,6 +747,8 @@ def run_simulation(settings: RunSettings) -> dict[str, Any]:
             logger.event("run failed", {"error": str(exc)})
             raise SystemExit(str(exc)) from exc
         finally:
+            if forcing_event_writer is not None:
+                forcing_event_writer.close()
             if scalar_writer is not None:
                 scalar_writer.close()
             if spectra_writer is not None:

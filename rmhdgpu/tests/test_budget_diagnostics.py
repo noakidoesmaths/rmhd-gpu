@@ -15,7 +15,7 @@ def _write_budget_input(
     dt: float = 0.005,
     t_out_scal: float = 0.005,
     use_forcing: bool = False,
-    forcing_sigma: float = 0.02,
+    forcing_epsilon: float = 0.02,
     zero_initial: bool = False,
     initial_condition_type: str | None = None,
     dissipative: bool = False,
@@ -62,9 +62,9 @@ def _write_budget_input(
                 "n_max_force = 2.0",
                 "alpha_force = 0.0",
                 "",
-                "[forcing.force_amplitudes]",
-                f"psi = {forcing_sigma}",
-                f"omega = {forcing_sigma}",
+                "[forcing.field_energy_injection_rates]",
+                f"psi = {forcing_epsilon}",
+                f"omega = {forcing_epsilon}",
             ]
         )
     if initial_condition_type is not None:

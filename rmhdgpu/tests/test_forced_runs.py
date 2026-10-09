@@ -46,7 +46,7 @@ def test_forcing_only_zero_initial_conditions_become_nonzero() -> None:
         use_variable_dt=False,
         dt_init=0.05,
     )
-    config.force_amplitudes["psi"] = 0.4
+    config.field_energy_injection_rates["psi"] = 0.4
     backend, grid, fft, _, _ = _build_context(config)
     state = State(grid, backend, field_names=config.field_names)
 
@@ -101,8 +101,8 @@ def test_forced_run_stays_finite_for_small_amplitude() -> None:
         dt_max=1.0e-2,
         tmax=0.05,
     )
-    config.force_amplitudes["psi"] = 0.03
-    config.force_amplitudes["omega"] = 0.03
+    config.field_energy_injection_rates["psi"] = 0.03
+    config.field_energy_injection_rates["omega"] = 0.03
     for name in config.field_names:
         config.dissipation[name]["nu_perp"] = 1.0e-3
         config.dissipation[name]["nu_par"] = 2.0e-3
@@ -143,8 +143,8 @@ def test_forcing_disabled_preserves_previous_behavior() -> None:
         use_variable_dt=False,
         dt_init=0.01,
     )
-    config.force_amplitudes["psi"] = 1.0
-    config.force_amplitudes["omega"] = 1.0
+    config.field_energy_injection_rates["psi"] = 1.0
+    config.field_energy_injection_rates["omega"] = 1.0
 
     backend, grid, fft, workspace, mask = _build_context(config)
     linear_ops = s09.build_dissipation_operators(grid, config)

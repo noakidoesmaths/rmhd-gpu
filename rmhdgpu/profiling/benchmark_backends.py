@@ -53,8 +53,8 @@ def _build_case_config(
         config.dissipation[name]["n_par"] = 1
 
     if use_forcing:
-        config.force_amplitudes["psi"] = 2.0e-2
-        config.force_amplitudes["omega"] = 2.0e-2
+        config.field_energy_injection_rates["psi"] = 2.0e-2
+        config.field_energy_injection_rates["omega"] = 2.0e-2
 
     return config
 
@@ -100,7 +100,9 @@ def _estimated_fft_calls_per_step(config: Config) -> int:
     fft_calls = 3 * 8 * 5
     if config.use_forcing:
         forced_fields = sum(
-            1 for amplitude in config.force_amplitudes.values() if float(amplitude) != 0.0
+            1
+            for epsilon in config.field_energy_injection_rates.values()
+            if float(epsilon) != 0.0
         )
         fft_calls += 3 * forced_fields
     return fft_calls

@@ -8,6 +8,7 @@ from rmhdgpu.forcing import (
     apply_forcing_kick,
     forcing_shell_mask,
     generate_forcing_kick,
+    mode_number_magnitude,
     shaped_random_real_field,
 )
 from rmhdgpu.grid import build_grid
@@ -32,6 +33,7 @@ __all__ = [
     "forcing_shell_mask",
     "generate_forcing_kick",
     "if_ssprk3_step",
+    "mode_number_magnitude",
     "shaped_random_real_field",
     "ssprk3_step",
 ]

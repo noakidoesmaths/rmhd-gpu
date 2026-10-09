@@ -4,6 +4,8 @@ import numpy as np
 
 from rmhdgpu.backend import build_backend
 from rmhdgpu.config import Config
+from rmhdgpu.diagnostics.alfvenic import elsasser_energies
+from rmhdgpu.diagnostics.spectra import elsasser_perpendicular_spectra
 from rmhdgpu.equations import s09
 from rmhdgpu.grid import build_grid
 from rmhdgpu.state import State
@@ -193,4 +195,41 @@ def test_total_energy_rhs_dissipation_consistent_with_finite_difference() -> Non
         rhs0,
         atol=1.0e-9,
         rtol=1.0e-6,
+    )
+
+
+def test_elsasser_energy_and_spectra_match_alfvenic_energy_identity() -> None:
+    config, backend, grid = _build_context()
+    state = State(grid, backend, field_names=s09.FIELD_NAMES)
+    rng = np.random.default_rng(611)
+    state["psi"][...] = rng.standard_normal(grid.fourier_shape) + 1j * rng.standard_normal(
+        grid.fourier_shape
+    )
+    state["omega"][...] = rng.standard_normal(grid.fourier_shape) + 1j * rng.standard_normal(
+        grid.fourier_shape
+    )
+    state["psi"][...] *= ~grid.mask_kperp0
+    state["omega"][...] *= ~grid.mask_kperp0
+
+    energies = elsasser_energies(state, grid, backend)
+    spectra = elsasser_perpendicular_spectra(state, grid, backend)
+    alfvenic = s09.alfvenic_energy(state, grid, backend)
+
+    np.testing.assert_allclose(
+        0.5 * (energies["elsasser_energy_plus"] + energies["elsasser_energy_minus"]),
+        alfvenic,
+        atol=1.0e-14,
+        rtol=1.0e-14,
+    )
+    np.testing.assert_allclose(
+        np.sum(spectra["z_plus"]),
+        energies["elsasser_energy_plus"],
+        atol=1.0e-14,
+        rtol=1.0e-14,
+    )
+    np.testing.assert_allclose(
+        np.sum(spectra["z_minus"]),
+        energies["elsasser_energy_minus"],
+        atol=1.0e-14,
+        rtol=1.0e-14,
     )

@@ -10,6 +10,9 @@ should provide:
 - `total_energy(state, ...)`: return the equation-set energy diagnostic
 - `compute_conserved_quantity_budgets(state, ...)`: optionally return
   conserved-quantity values plus named non-conservative RHS terms
+- Alfvénic equation sets should evolve `psi` plus either `phi` directly or
+  `omega` with a `derive_phi_hat(omega_hat, grid)` helper. This allows generic
+  Elsasser forcing and diagnostics without equation-set-specific branching.
 - `linear_matrix(kx, ky, kz, params)`: return linear operator data for one mode
 
 This foundation does not impose an inheritance-heavy design.

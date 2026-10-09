@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from rmhdgpu import forcing_control
 from rmhdgpu.forcing import apply_forcing_kick, generate_forcing_kick
 from rmhdgpu.state import State
 from rmhdgpu.utils import check_state_finite
@@ -408,8 +409,15 @@ def evolve_until(
     progress_output_every = getattr(params_obj, "progress_output_every", None)
 
     current = state
+    controlled_forcing = None
+    if getattr(params_obj, "use_forcing", False) and getattr(params_obj, "forcing_type", "stochastic") == "controlled_shell":
+        from rmhdgpu.equations import get_equation_module
+        equation_module = kwargs.get("equation_module") or get_equation_module(params_obj.equation_set)
+        controlled_forcing = forcing_control.create_control(
+            params_obj, grid, current.backend, equation_module, kwargs.get("dealias_mask"))
+        forcing_control.initialize(controlled_forcing, current)
     forcing_rng_obj = forcing_rng
-    if getattr(params_obj, "use_forcing", False) and forcing_rng_obj is None:
+    if getattr(params_obj, "use_forcing", False) and controlled_forcing is None and forcing_rng_obj is None:
         forcing_rng_obj = current.backend.random_generator(getattr(params_obj, "forcing_seed", None))
 
     t = 0.0
@@ -440,7 +448,9 @@ def evolve_until(
 
         dt = min(dt, t_final - t)
         current = stepper_func(current, dt, ideal_rhs_func, linear_ops, rhs_kwargs=kwargs)
-        if getattr(params_obj, "use_forcing", False):
+        if controlled_forcing is not None:
+            forcing_control.advance(controlled_forcing, current, dt, t+dt, final=t+dt >= t_final-1e-15)
+        elif getattr(params_obj, "use_forcing", False):
             forcing_kick = generate_forcing_kick(
                 current,
                 grid,
@@ -483,4 +493,6 @@ def evolve_until(
         "steps": steps,
         "dt_last": 0.0 if dt_prev is None else dt_prev,
     }
+    if controlled_forcing is not None:
+        info.update(forcing_control.diagnostics(controlled_forcing, current))
     return current, info

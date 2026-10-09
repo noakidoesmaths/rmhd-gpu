@@ -1,0 +1,65 @@
+# Short balanced constant-power check with the full nonlinear Alfvenic RHS.
+# Each branch requests dE_z/dt = 0.002, where E_z = <|z|^2>/4.
+# Startup energy is recorded separately from the subsequent injected work.
+title = "Balanced controlled physical power"
+output_dir = "outputs/controlled_power_alfvenic"
+
+[equations]
+type = "alfvenic"
+mode = "nonlinear"
+
+[grid]
+Nx = 32
+Ny = 32
+Nz = 32
+
+[time]
+tmax = 0.2
+dt_init = 0.002
+dt_max = 0.002
+use_variable_dt = true
+cfl_number = 0.3
+
+[backend]
+backend = "scipy_cpu"
+fft_workers = 4
+real_dtype = "float64"
+complex_dtype = "complex128"
+
+[output]
+t_out_scal = 0.002
+t_out_spec = 0.05
+t_out_full = 0.0
+
+[physics]
+vA = 1.2
+
+[initial_condition]
+type = "zero"
+
+[forcing]
+type = "controlled_shell"
+use_forcing = true
+forcing_seed = 53
+
+[forcing.controlled_shell]
+k_sigma_min = 2.0
+k_sigma_max = 3.0
+kz_index = 1
+branches = ["plus", "minus"]
+interval_max = 0.01
+
+[forcing.controlled_shell.plus]
+control = "constant_power"
+power_basis = "elsasser"
+epsilon = 0.002
+startup_energy_factor = 10.0
+
+[forcing.controlled_shell.minus]
+control = "constant_power"
+power_basis = "elsasser"
+epsilon = 0.002
+startup_energy_factor = 10.0
+
+# Omitted dissipation coefficients default to zero. This is a short budget
+# check, not a stationary forced-turbulence production setup.

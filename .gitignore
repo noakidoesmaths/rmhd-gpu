@@ -28,3 +28,6 @@ examples/rho_Kp0_*
 *.mp4
 
 .claude
+/output/
+/examples/outputs/
+/docs/

@@ -202,16 +202,21 @@ def main() -> None:
         tmax=run_params["t_final"],
         use_variable_dt=True,
         use_forcing=True,
+        forcing_mode="elsasser",
         n_min_force=1.0,
         n_max_force=3.0,
         alpha_force=0.5,
+        # This balanced rate gives u_perp,rms approximately one in the 32^3
+        # auto-dissipation calibration; achieved RMS remains a run diagnostic.
+        epsilon_plus=0.35,
+        epsilon_minus=0.35,
+        field_energy_injection_rates={
+            "upar": 5.0e-4,
+            "dbpar": 1.0e-3,
+            "s": 1.0e-4,
+        },
         forcing_seed=args.forcing_seed,
     )
-    config.force_amplitudes["psi"] = 1.0
-    config.force_amplitudes["omega"] = 1.0
-    config.force_amplitudes["upar"] = 0.03
-    config.force_amplitudes["dbpar"] = 0.03
-    config.force_amplitudes["s"] = 0.02
 
     backend = build_backend(config)
     grid = build_grid(config, backend)
@@ -251,7 +256,10 @@ def main() -> None:
         {
             "forcing_band": [config.n_min_force, config.n_max_force],
             "alpha_force": config.alpha_force,
-            "force_amplitudes": dict(config.force_amplitudes),
+            "forcing_mode": config.forcing_mode,
+            "epsilon_plus": config.epsilon_plus,
+            "epsilon_minus": config.epsilon_minus,
+            "field_energy_injection_rates": dict(config.field_energy_injection_rates),
             "k0": k0,
             "kperp_max_dealiased": kperp_max_dealiased,
             "k_d": k_d,
@@ -335,7 +343,10 @@ def main() -> None:
         {
             "forcing_band": [config.n_min_force, config.n_max_force],
             "alpha_force": config.alpha_force,
-            "force_amplitudes": dict(config.force_amplitudes),
+            "forcing_mode": config.forcing_mode,
+            "epsilon_plus": config.epsilon_plus,
+            "epsilon_minus": config.epsilon_minus,
+            "field_energy_injection_rates": dict(config.field_energy_injection_rates),
             "final_energies": energy_history[-1],
         },
     )

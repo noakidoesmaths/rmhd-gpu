@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rmhdgpu.forcing_control import settings_document
 from rmhdgpu.config import Config, default_config_dict_for_equation
 from rmhdgpu.equations import get_equation_module
 from rmhdgpu.initconds import normalize_initial_condition_parameters
@@ -56,7 +57,18 @@ _SECTION_KEYS = {
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
     "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "project_kpar0", "dealias", "dealias_mode"},
     "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
-    "forcing": {"use_forcing", "n_min_force", "n_max_force", "alpha_force", "forcing_seed", "force_amplitudes"},
+    "forcing": {
+        "use_forcing",
+        "forcing_mode",
+        "n_min_force",
+        "n_max_force",
+        "alpha_force",
+        "forcing_seed",
+        "epsilon_plus",
+        "epsilon_minus",
+        "field_energy_injection_rates",
+        "force_amplitudes", "type", "controlled_shell",
+    },
 }
 _AUTO_DISSIPATION_KEYS = {
     "mode",
@@ -79,7 +91,16 @@ _SECTION_TO_CONFIG_KEYS = {
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
     "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "project_kpar0", "dealias", "dealias_mode"},
     "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
-    "forcing": {"use_forcing", "n_min_force", "n_max_force", "alpha_force", "forcing_seed"},
+    "forcing": {
+        "use_forcing",
+        "forcing_mode",
+        "n_min_force",
+        "n_max_force",
+        "alpha_force",
+        "forcing_seed",
+        "epsilon_plus",
+        "epsilon_minus",
+    },
 }
 
 
@@ -169,6 +190,19 @@ def _require_table(data: dict[str, Any], section: str) -> dict[str, Any]:
     return value
 
 
+def _validate_forcing_document(forcing):
+    if "force_amplitudes" in forcing:
+        raise ValueError("forcing.force_amplitudes was removed: specify energy injection rates explicitly; old stochastic runs require their historical source.")
+    if forcing.get("type") == "controlled_shell":
+        conflicting = set(forcing) & {"n_min_force", "n_max_force", "alpha_force", "forcing_mode",
+                                      "epsilon_plus", "epsilon_minus", "field_energy_injection_rates"}
+        if conflicting:
+            raise ValueError(f"Stochastic settings are incompatible with controlled_shell: {sorted(conflicting)}.")
+    rates = forcing.get("field_energy_injection_rates", {})
+    if rates is not None and not isinstance(rates, dict):
+        raise ValueError("forcing.field_energy_injection_rates must be a TOML table.")
+
+
 def load_run_file(path: str | Path) -> dict[str, Any]:
     """Load a `.input` file using TOML syntax."""
 
@@ -209,9 +243,7 @@ def load_run_file(path: str | Path) -> dict[str, Any]:
         raise ValueError("initial_condition must be a TOML table.")
 
     forcing = _require_table(data, "forcing")
-    force_amplitudes = forcing.get("force_amplitudes", {})
-    if force_amplitudes is not None and not isinstance(force_amplitudes, dict):
-        raise ValueError("forcing.force_amplitudes must be a TOML table.")
+    _validate_forcing_document(forcing)
 
     dissipation = data.get("dissipation", {})
     if dissipation is not None and not isinstance(dissipation, dict):
@@ -305,19 +337,17 @@ def cli_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
 
     forcing_map = {
         "use_forcing": "use_forcing",
+        "forcing_mode": "forcing_mode",
         "forcing_seed": "forcing_seed",
         "n_min_force": "n_min_force",
         "n_max_force": "n_max_force",
         "alpha_force": "alpha_force",
+        "epsilon_plus": "epsilon_plus",
+        "epsilon_minus": "epsilon_minus",
     }
     for cli_key, config_key in forcing_map.items():
         if cli_key in values:
             _set_section("forcing", config_key, values[cli_key])
-    if "force_sigma" in values:
-        overrides.setdefault("forcing", {}).setdefault("force_amplitudes", {})
-        overrides["forcing"]["force_amplitudes"]["psi"] = values["force_sigma"]
-        overrides["forcing"]["force_amplitudes"]["omega"] = values["force_sigma"]
-
     initial_condition_map = {
         "initial_condition": "type",
     }
@@ -361,9 +391,12 @@ def _document_to_config_values(document: dict[str, Any]) -> dict[str, Any]:
         _apply_section_to_config_dict(config_values, section_name, section_data)
 
     forcing = _require_table(document, "forcing")
-    force_amplitudes = forcing.get("force_amplitudes")
-    if force_amplitudes is not None:
-        config_values["force_amplitudes"].update(deepcopy(force_amplitudes))
+    field_rates = forcing.get("field_energy_injection_rates")
+    _validate_forcing_document(forcing)
+    config_values["forcing_type"] = forcing.get("type", "stochastic")
+    config_values["controlled_shell"] = deepcopy(forcing.get("controlled_shell"))
+    if field_rates is not None:
+        config_values["field_energy_injection_rates"].update(deepcopy(field_rates))
 
     dissipation = document.get("dissipation")
     if dissipation is not None:
@@ -433,11 +466,14 @@ def _resolved_document(
             "cs2_over_vA2": config.cs2_over_vA2,
             "N2": config.N2,
             "use_forcing": config.use_forcing,
+            "forcing_mode": config.forcing_mode,
             "n_min_force": config.n_min_force,
             "n_max_force": config.n_max_force,
             "alpha_force": config.alpha_force,
             "forcing_seed": config.forcing_seed,
-            "force_amplitudes": deepcopy(config.force_amplitudes),
+            "epsilon_plus": config.epsilon_plus,
+            "epsilon_minus": config.epsilon_minus,
+            "field_energy_injection_rates": deepcopy(config.field_energy_injection_rates),
             "dissipation": deepcopy(config.dissipation),
             "auto_dissipation": asdict(config.auto_dissipation),
         }
@@ -490,12 +526,15 @@ def _resolved_document(
             "N2": config_values["N2"],
         },
         "forcing": {
-            "use_forcing": config_values["use_forcing"],
-            "n_min_force": config_values["n_min_force"],
-            "n_max_force": config_values["n_max_force"],
-            "alpha_force": config_values["alpha_force"],
-            "forcing_seed": config_values["forcing_seed"],
-            "force_amplitudes": config_values["force_amplitudes"],
+            "use_forcing": config.use_forcing, "type": config.forcing_type,
+            "forcing_seed": config.forcing_seed,
+            **({"controlled_shell": settings_document(config.controlled_shell)}
+               if config.forcing_type == "controlled_shell" else {
+                "forcing_mode": config.forcing_mode,
+                "n_min_force": config.n_min_force, "n_max_force": config.n_max_force,
+                "alpha_force": config.alpha_force, "epsilon_plus": config.epsilon_plus,
+                "epsilon_minus": config.epsilon_minus,
+                "field_energy_injection_rates": config.field_energy_injection_rates}),
         },
         "dissipation": {
             **config_values["auto_dissipation"],

@@ -167,6 +167,41 @@ def parallel_energy_spectrum_from_state(
             spectra["kprl"] = kprl
         spectra[field_name] = spectrum
     return spectra
+def elsasser_perpendicular_spectra(
+    state: Any,
+    grid: Any,
+    backend: Any | None = None,
+    *,
+    bin_width: float | None = None,
+    equation_module: Any | None = None,
+) -> dict[str, np.ndarray]:
+    """Return ``E_plus(k_perp)`` and ``E_minus(k_perp)`` shell spectra.
+
+    The convention matches :func:`rmhdgpu.diagnostics.alfvenic.elsasser_energies`:
+    ``zeta_plus = phi - psi``, ``zeta_minus = phi + psi``, and each modal
+    density is ``0.5 * k_perp^2 * |zeta|^2``.
+    """
+
+    from rmhdgpu.diagnostics.alfvenic import alfvenic_phi_hat
+
+    if "psi" not in state.field_names:
+        raise ValueError("Elsasser spectra require an evolved 'psi' field.")
+    backend_obj = state.backend if backend is None else backend
+    xp = backend_obj.xp
+    phi_hat = alfvenic_phi_hat(state, grid, equation_module)
+    kperp, energy_plus = perpendicular_shell_spectrum(
+        0.5 * grid.kperp2 * xp.abs(phi_hat - state["psi"]) ** 2,
+        grid,
+        backend_obj,
+        bin_width=bin_width,
+    )
+    _, energy_minus = perpendicular_shell_spectrum(
+        0.5 * grid.kperp2 * xp.abs(phi_hat + state["psi"]) ** 2,
+        grid,
+        backend_obj,
+        bin_width=bin_width,
+    )
+    return {"kperp": kperp, "z_plus": energy_plus, "z_minus": energy_minus}
 
 
 def compute_placeholder_spectra(*args: Any, **kwargs: Any) -> dict[str, Any]:

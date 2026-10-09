@@ -34,10 +34,11 @@ from typing import Any
 import numpy as np
 
 from rmhdgpu.diagnostics.budget import flatten_conserved_quantity_budgets
+from rmhdgpu.diagnostics.alfvenic import elsasser_energies
 from rmhdgpu.diagnostics.scalar import STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO
 from rmhdgpu.fourier_diagnostics import modal_average
 from rmhdgpu.operators import dz, inv_lap_perp, lap_perp, poisson_bracket
-from rmhdgpu.diagnostics.spectra import perpendicular_shell_spectrum
+from rmhdgpu.diagnostics.spectra import elsasser_perpendicular_spectra, perpendicular_shell_spectrum
 from rmhdgpu.state import State
 
 
@@ -52,6 +53,10 @@ DIAGNOSTIC_GAMMA = 5.0 / 3.0
 SCALAR_DIAGNOSTIC_INFO = {
     **STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO,
     "alfvenic_energy": "Alfvenic part of the S09 energy: 0.5 <|grad phi|^2 + |grad psi|^2>.",
+    "elsasser_energy_plus": "E+ = 0.5 <|grad(phi - psi)|^2>.",
+    "elsasser_energy_minus": "E- = 0.5 <|grad(phi + psi)|^2>.",
+    "elsasser_energy_ratio": "Elsasser energy ratio E+ / E-.",
+    "normalized_cross_helicity": "(E- - E+) / (E+ + E-) for the package potential convention.",
     "upar_energy": "Unweighted kinetic parallel energy proxy: 0.5 <upar^2>.",
     "dbpar_energy": "Unweighted magnetic-compressive energy proxy: 0.5 <dbpar^2>.",
     "entropy_variance": "Unweighted entropy variance proxy: 0.5 <s^2>.",
@@ -342,6 +347,12 @@ def perpendicular_energy_spectra(
         backend,
         bin_width=bin_width,
     )
+    elsasser = elsasser_perpendicular_spectra(
+        state,
+        grid,
+        backend,
+        bin_width=bin_width,
+    )
     return {
         "kperp": kperp,
         "u_perp": u_perp,
@@ -349,6 +360,8 @@ def perpendicular_energy_spectra(
         "upar": upar,
         "dbpar": dbpar,
         "s": entropy,
+        "z_plus": elsasser["z_plus"],
+        "z_minus": elsasser["z_minus"],
     }
 
 
@@ -497,6 +510,7 @@ def compute_equation_scalar_diagnostics(
         "entropy_variance": entropy,
         "total_energy_proxy": alfvenic + upar + dbpar + entropy,
     }
+    diagnostics.update(elsasser_energies(state, grid, backend))
 
     budgets = compute_conserved_quantity_budgets(
         state,
@@ -514,3 +528,27 @@ def compute_equation_scalar_diagnostics(
     rhs_terms.setdefault("forcing", 0.0)
     diagnostics.update(flatten_conserved_quantity_budgets(budgets))
     return diagnostics
+
+
+# Controlled forcing acts on the Alfvénic pair only. The equation declares
+# storage here; the shared helpers never guess a different equation's fields.
+from rmhdgpu.forcing_fields import (
+    standard_metric as forcing_metric,
+    standard_native_parameters as forcing_native_parameters,
+    standard_energy_factors as forcing_energy_factors,
+    standard_branch_values as forcing_branch_values,
+    standard_apply_gain as forcing_apply_gain,
+    standard_seed_branch as forcing_seed_branch,
+    standard_characteristic_speed as forcing_characteristic_speed,
+    standard_budget_work as forcing_budget_work,
+    vorticity_shell_density as forcing_shell_density,
+    vorticity_perpendicular_energy as forcing_perpendicular_energy,
+    vorticity_perpendicular_shell_energy as forcing_perpendicular_shell_energy,
+    vorticity_measurement as forcing_measurement,
+)
+
+
+def forcing_fields(config):
+    """Map controlled Elsasser branches to this module's evolved fields."""
+    from rmhdgpu.forcing_fields import alfvenic_fields
+    return alfvenic_fields(config, velocity="omega", magnetic="psi")

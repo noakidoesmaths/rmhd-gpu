@@ -1,0 +1,105 @@
+# Plus-only target relaxation with the full nonlinear S09 RHS.
+# Zero minus/compressive fields imply no nonlinear self-interaction.
+# The target is physical vector RMS; startup energy is 1% of target.
+# Seven crossing times with the frozen convergence-check settings.
+title = "S09 controlled forcing: target-amplitude convergence"
+output_dir = "outputs/controlled_target_s09"
+
+[equations]
+type = "s09"
+mode = "nonlinear"
+
+[grid]
+Nx = 32
+Ny = 32
+Nz = 32
+Lx = 6.283185307179586
+Ly = 6.283185307179586
+Lz = 6.283185307179586
+
+[time]
+tmax = 36.65191429188092
+dt_init = 0.002
+dt_max = 0.002
+use_variable_dt = true
+cfl_number = 0.3
+
+[output]
+t_out_scal = 0.10471975511965978
+t_out_spec = 0.26179938779914946
+t_out_full = 0.0
+
+[backend]
+backend = "scipy_cpu"
+fft_workers = 4
+real_dtype = "float64"
+complex_dtype = "complex128"
+
+[runtime]
+dealias = true
+dealias_mode = "two_thirds"
+runtime_check_every = 100
+progress_output_every = 500
+
+[physics]
+vA = 1.2
+cs2_over_vA2 = 1.0
+
+[initial_condition]
+type = "zero"
+
+[forcing]
+use_forcing = true
+type = "controlled_shell"
+forcing_seed = 20260904
+
+[forcing.controlled_shell]
+k_sigma_min = 2
+k_sigma_max = 3
+kz_index = 1
+branches = ["plus"]
+min_forced_modes = 8
+phase_model = "none"
+phase_angle_max = 0.5
+log_gain_target = 0.05
+log_gain_warn = 0.1
+
+[forcing.controlled_shell.plus]
+control = "target"
+target_scope = "branch_total"
+target_basis = "elsasser"
+target_quantity = "rms"
+target_value = 0.2
+tau_F = 5.235987755982989
+startup_energy_fraction = 0.01
+ring_floor_fraction = 0.01
+
+[dissipation.psi]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 1
+
+[dissipation.omega]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 1
+
+[dissipation.upar]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 1
+
+[dissipation.dbpar]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 1
+
+[dissipation.s]
+nu_perp = 0.0
+nu_par = 0.0
+n_perp = 3
+n_par = 1

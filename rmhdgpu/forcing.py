@@ -1,13 +1,27 @@
 """Stochastic white-in-time forcing helpers.
 
-The forcing implemented here is additive and refreshed every timestep. For one
-field `q_i`, over a step `dt`, the kick is
+The forcing is additive and refreshed every timestep. Inputs are mean energy
+injection rates, not raw field amplitudes. A fixed normalization derived from
+the ensemble variance of the filtered Gaussian is used throughout a run. An
+individual realization is never renormalized, so the kick energy fluctuates
+naturally while its expectation is ``epsilon * dt``. Consequently kicks have
+Wiener scaling, ``delta q ~ sqrt(dt)``, while ``epsilon`` has the unambiguous
+units energy per unit time.
 
-`delta q_i = sigma_i * sqrt(dt) * xi_i`
+Two forcing modes are supported:
 
-where `sigma_i` is the configured RMS forcing strength in field-units per
-`sqrt(time)`, and `xi_i` is a freshly generated band-limited, unit-RMS real
-Gaussian field.
+``field``
+    Independently force evolved fields using ``field_energy_injection_rates``.
+    The equation module's ``total_energy`` definition supplies the correct
+    normalization for potentials, vorticity, and weighted compressive fields.
+
+``elsasser``
+    Independently force ``zeta_plus = phi - psi`` and
+    ``zeta_minus = phi + psi`` at rates ``epsilon_plus`` and
+    ``epsilon_minus``. Their energies are
+    ``E_plus/minus = 0.5 <|grad_perp zeta_plus/minus|^2>``. The velocity
+    potential may be stored directly as ``phi`` or indirectly as
+    ``omega = lap_perp(phi)``.
 
 The forcing band is defined in integer Fourier mode-number magnitude
 
@@ -27,7 +41,9 @@ from typing import Any
 
 import numpy as np
 
+from rmhdgpu.fourier_diagnostics import modal_average
 from rmhdgpu.state import State
+from rmhdgpu.forcing_fields import add_potential_increment
 
 
 def mode_number_magnitude(grid: Any, backend: Any) -> Any:
@@ -194,7 +210,10 @@ def shaped_random_real_field(
     6. transform back to Fourier space
 
     The final Fourier field is masked again to remove roundoff-level leakage
-    outside the selected forcing band.
+    outside the selected forcing band. This utility retains its historical
+    per-realization unit-RMS contract for initial-condition and diagnostic use;
+    stochastic forcing kicks use :func:`_shaped_fourier_noise` instead and are
+    never normalized realization by realization.
     """
 
     metadata = None
@@ -299,6 +318,175 @@ def shaped_random_real_field_perp_prl(
     return shaped_real, shaped_hat
     
 
+def _shaped_fourier_noise(
+    grid: Any,
+    backend: Any,
+    fft: Any,
+    *,
+    rng: Any,
+    band_mask: Any,
+    shaping: Any,
+    out_hat: Any | None = None,
+) -> Any:
+    """Draw one raw filtered Gaussian realization in Fourier space.
+
+    Real-space samples have independent unit-variance Gaussian distributions.
+    The fixed Fourier filter is applied without measuring or normalizing the
+    realization. Starting in real space guarantees the required R2C reality
+    constraints.
+    """
+
+    real_noise = _standard_normal_field(rng, grid.real_shape, grid.real_dtype, backend)
+    noise_hat = fft.r2c(real_noise, out=out_hat)
+    noise_hat[...] *= shaping
+    noise_hat[...] *= band_mask
+    return noise_hat
+
+
+def _equation_module_for_forcing(config: Any, equation_module: Any | None) -> Any:
+    if equation_module is not None:
+        return equation_module
+
+    from rmhdgpu.equations import get_equation_module
+
+    equation_set = getattr(config, "equation_set", None)
+    if equation_set is None:
+        raise ValueError(
+            "Field-energy forcing requires either equation_module or "
+            "config.equation_set so the kick can use the correct energy normalization."
+        )
+    return get_equation_module(str(equation_set))
+
+
+def _expected_field_noise_energy(
+    field_name: str,
+    state: State,
+    grid: Any,
+    backend: Any,
+    config: Any,
+    equation_module: Any,
+    shaping: Any,
+    workspace: Any | None,
+) -> float:
+    """Return ensemble-mean energy of one unscaled filtered Gaussian field.
+
+    NumPy/CuPy forward FFTs are unnormalized. For ``N`` independent unit-
+    variance real samples, every stored Fourier coefficient has
+    ``E[|q_hat(k)|^2] = N`` before filtering. Supplying deterministic modal
+    amplitudes ``sqrt(N) * shaping`` to the quadratic equation energy therefore
+    evaluates the exact ensemble expectation without sampling a realization.
+    """
+
+    if not hasattr(equation_module, "total_energy"):
+        raise ValueError(
+            f"Equation module {equation_module.__name__!r} must provide total_energy(...) "
+            "to use field-energy forcing."
+        )
+
+    cache_key = (
+        "forcing_expected_field_energy",
+        id(config),
+        getattr(equation_module, "__name__", type(equation_module).__name__),
+        field_name,
+        id(shaping),
+    )
+    if workspace is not None and cache_key in workspace.cache:
+        return float(workspace.cache[cache_key])
+
+    normalization_state = (
+        state.zeros_like()
+        if workspace is None
+        else workspace.get_state_buffer("forcing_normalization", state.field_names)
+    )
+    normalization_state.fill_zero()
+    normalization_state[field_name][...] = np.sqrt(np.prod(grid.real_shape)) * shaping
+    energy = float(equation_module.total_energy(normalization_state, grid, backend, config))
+    if not np.isfinite(energy) or energy <= 0.0:
+        raise RuntimeError(
+            f"Cannot normalize forcing for field {field_name!r}: the expected "
+            f"filtered-noise energy is non-positive or non-finite ({energy!r}). "
+            "Check the equation-set energy and forcing band."
+        )
+    if workspace is not None:
+        workspace.cache[cache_key] = energy
+    return energy
+
+
+def _expected_elsasser_noise_energy(shaping: Any, grid: Any, backend: Any) -> float:
+    """Return expected ``0.5 <|grad_perp xi|^2>`` for filtered Gaussian noise."""
+
+    sample_count = float(np.prod(grid.real_shape))
+    density_hat = 0.5 * sample_count * grid.kperp2 * shaping**2
+    energy = modal_average(density_hat, grid, backend)
+    if not np.isfinite(energy) or energy <= 0.0:
+        raise RuntimeError(
+            "Cannot normalize Elsasser forcing: the selected forcing band has "
+            "zero or non-finite perpendicular-gradient energy. Include at least "
+            "one mode with k_perp != 0."
+        )
+    return energy
+
+
+def _add_elsasser_forcing(
+    kick: State,
+    grid: Any,
+    fft: Any,
+    backend: Any,
+    config: Any,
+    rng: Any,
+    dt: float,
+    metadata: dict[str, Any],
+    workspace: Any | None,
+) -> None:
+    """Add independent, energy-normalized ``zeta_plus`` and ``zeta_minus`` kicks."""
+
+    if "psi" not in kick.field_names:
+        raise ValueError("Elsasser forcing requires an evolved 'psi' field.")
+
+    # Pure k_perp=0 potentials carry no RMHD Elsasser energy and are excluded
+    # before normalization rather than left as unconstrained gauge components.
+    alfvenic_mask = metadata["band_mask"] & (~grid.mask_kperp0)
+    alfvenic_shaping = metadata["shaping"] * alfvenic_mask
+    scratch_hat = None if workspace is None else workspace.complex.get("c1")
+    cache_key = (
+        "forcing_expected_elsasser_energy",
+        id(config),
+        id(metadata["shaping"]),
+    )
+    if workspace is not None and cache_key in workspace.cache:
+        expected_energy = float(workspace.cache[cache_key])
+    else:
+        expected_energy = _expected_elsasser_noise_energy(
+            alfvenic_shaping,
+            grid,
+            backend,
+        )
+        if workspace is not None:
+            workspace.cache[cache_key] = expected_energy
+
+    for branch, epsilon in (
+        ("plus", float(getattr(config, "epsilon_plus"))),
+        ("minus", float(getattr(config, "epsilon_minus"))),
+    ):
+        if epsilon == 0.0:
+            continue
+        xi_hat = _shaped_fourier_noise(
+            grid,
+            backend,
+            fft,
+            rng=rng,
+            band_mask=alfvenic_mask,
+            shaping=alfvenic_shaping,
+            out_hat=scratch_hat,
+        )
+        scale = float(np.sqrt(epsilon * dt / expected_energy))
+
+        # zeta+ = phi - psi and zeta- = phi + psi, hence
+        add_potential_increment(kick, grid, xi_hat, branch=branch,
+                                velocity="phi" if "phi" in kick.field_names else "omega", scale=scale)
+
+
+
 def generate_forcing_kick(
     state: State,
     grid: Any,
@@ -309,20 +497,29 @@ def generate_forcing_kick(
     dt: float,
     workspace: Any | None = None,
     out: State | None = None,
+    equation_module: Any | None = None,
 ) -> State:
     """Return the additive stochastic forcing increment for one timestep.
 
-    Each field is forced independently with a fresh random realization. The
-    increment scales as `sqrt(dt)` so the configured amplitudes are interpreted
-    as RMS forcing strengths in field-units per `sqrt(time)`.
+    Configured values are mean energy injection rates. In ``field`` mode, the
+    fixed normalization makes the expected self-energy of a kick in field
+    ``i`` equal to ``epsilon_i * dt`` under the selected equation set's total
+    energy. In ``elsasser`` mode, the same expectation applies separately to
+    ``E_plus`` and ``E_minus``; non-Alfvénic fields can still be forced through
+    per-field rates.
+
+    Neither the kick nor the pre-existing state is measured to adjust the
+    amplitude. Individual kick energies and cross terms therefore fluctuate,
+    while their ensemble means give the configured Itô injection rates.
     """
 
     kick = state.zeros_like() if out is None else out
     kick.fill_zero()
     if not getattr(config, "use_forcing", False):
         return kick
+    if not np.isfinite(dt) or dt <= 0.0:
+        raise ValueError(f"Forcing timestep dt must be finite and positive; got {dt!r}.")
 
-    scale_dt = float(np.sqrt(dt))
     metadata = _forcing_metadata(
         grid,
         backend,
@@ -331,29 +528,54 @@ def generate_forcing_kick(
         alpha_force=float(getattr(config, "alpha_force")),
         workspace=workspace,
     )
-    scratch_real = None if workspace is None else workspace.real.get("r0")
     scratch_hat = None if workspace is None else workspace.complex.get("c1")
 
+    forcing_mode = str(getattr(config, "forcing_mode", "field"))
+    if forcing_mode == "elsasser":
+        _add_elsasser_forcing(
+            kick,
+            grid,
+            fft,
+            backend,
+            config,
+            rng,
+            dt,
+            metadata,
+            workspace,
+        )
+    elif forcing_mode != "field":
+        raise ValueError(f"Unknown forcing_mode {forcing_mode!r}.")
+
+    injection_rates = getattr(config, "field_energy_injection_rates")
+    module = None
+
     for field_name in kick.field_names:
-        sigma = float(getattr(config, "force_amplitudes")[field_name])
-        if sigma == 0.0:
+        epsilon = float(injection_rates[field_name])
+        if epsilon == 0.0:
             continue
 
-        _, xi_hat = shaped_random_real_field(
+        xi_hat = _shaped_fourier_noise(
             grid,
             backend,
             fft,
-            n_min_force=float(getattr(config, "n_min_force")),
-            n_max_force=float(getattr(config, "n_max_force")),
-            alpha_force=float(getattr(config, "alpha_force")),
             rng=rng,
             band_mask=metadata["band_mask"],
             shaping=metadata["shaping"],
-            out_real=scratch_real,
             out_hat=scratch_hat,
-            workspace=workspace,
         )
-        kick[field_name][...] = sigma * scale_dt * xi_hat
+        if module is None:
+            module = _equation_module_for_forcing(config, equation_module)
+        expected_energy = _expected_field_noise_energy(
+            field_name,
+            state,
+            grid,
+            backend,
+            config,
+            module,
+            metadata["shaping"],
+            workspace,
+        )
+        kick[field_name][...] += np.sqrt(epsilon * dt / expected_energy) * xi_hat
 
     return kick
 
