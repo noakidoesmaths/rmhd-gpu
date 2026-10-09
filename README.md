@@ -505,7 +505,7 @@ Useful notes:
 - `plot_spectra.py` writes one log-log plot per quantity, colored by time
 - `plot_fullfield.py` accepts either a `fullfields/` directory or a single snapshot `.h5` file
 - `plot_cross_helicity.py` plots `sigma_c = (W+ - W-)/(W+ + W-)` for the inhomogeneous RMHD sets; pass several run directories to overlay them (`sigma_c = 1` is pure `z+`)
-- `plot_flux_closure.py` plots the density flux `V_rho_x` and its closure `eta_turb F_rho`, and `rms(drho)` with its Eq. (47) estimate, against `chi_A`, one window-averaged point per run, e.g. `python vis/plot_flux_closure.py "examples/outputs_*_rho" --tmin 2 --tmax 10`
+- `plot_flux_closure.py` tests the density-flux closure in dimensionless form against `chi_A`, one window-averaged point per run: `V_rho_x/(F_rho z+ l_perp)` (closure: 1/4) and `rms(drho)/(|F_rho| l_perp)` (closure: the alignment `rms(z+_x)/z+`), e.g. `python vis/plot_flux_closure.py "examples/outputs_*_rho" --tmin 2 --tmax 10`
 - `run_quantities.py` is not a plot: it defines the derived quantities the inhomogeneous RMHD plots share (`z±`, `l_perp`, `chi_A`, `eta_turb`, the slaved-closure estimates) from a run's saved CSV and input. Use it in Spyder with `run = load_run("RUN_DIRECTORY")`, then `run.chi_a`, `run.l_perp`, and so on. It also reads CSVs written before 2026-10-08, when the `k_perp_plus`/`k_prl_plus` columns were called `w_plus_kperp`/`w_plus_kprl`
 - most driver, plotting, profiling, and example scripts support `--help` to print available options
 

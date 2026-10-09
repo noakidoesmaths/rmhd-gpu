@@ -1,36 +1,42 @@
-"""Plot the density flux V_rho and its closure eta_turb F_rho against chi_A, plus rms(drho/rho_0).
+"""Plot the dimensionless density flux and density fluctuation against chi_A.
 
 Squire et al., arXiv:2607.08036, Eqs. (47), (79) and (80). The closure says the
-density flux across the background gradient is diffusive,
+density flux across the background gradient is diffusive, with an eddy-scale
+diffusivity and an eddy-scale displacement:
 
-    V_rho_x = <(delta rho/rho_0) delta u_x>  ~  eta_turb F_rho,   eta_turb = z+_rms l_perp / 4,
+    V_rho_x = <(delta rho/rho_0) delta u_x>  ~  eta_turb F_rho,   eta_turb = z+_rms l_perp / 4   (Eq. 80)
+    rms(delta rho/rho_0)                     ~  |F_rho| l_perp rms(z+_x)/z+_rms                 (Eq. 47)
 
-and the paper notes it assumes strong turbulence, chi_A >~ 1. Each run gives one
-point per panel: the mean over a time window of
+V_rho_x is a velocity and F_rho a gradient (1/length), so dividing out the drive
+F_rho and the eddy scales makes both dimensionless:
 
-    left:   V_rho_x (filled) and eta_turb F_rho (hollow)
-    right:  rms(drho/rho_0) (filled) and the Eq. (47) estimate l_perp |F_rho| rms(z+_x)/z+_rms (hollow)
+    left:   V_rho_x / (F_rho z+_rms l_perp)              closure: 1/4
+    right:  rms(delta rho/rho_0) / (|F_rho| l_perp)      closure: rms(z+_x)/z+_rms
 
-against the mean chi_A over the same window. The closure holds where the filled
-and hollow markers of a run coincide. In a stably stratified run F_rho < 0, so a
-down-gradient flux is negative too.
+The left ratio is also the measured diffusivity eta_meas = V_rho_x / F_rho in
+units of z+ l_perp. Each run is one point against its chi_A, so runs with
+different K_rho0 or amplitude can share one plot, and the closure is a flat
+line. The paper notes the closure assumes strong turbulence, chi_A >~ 1
+(dotted line). The right panel's estimate is drawn per run (hollow), since the
+alignment rms(z+_x)/z+_rms is measured; the isotropic value 1/sqrt(2) is the
+dashed line.
 
-Where the numbers come from: z+, l_perp = 1/k_perp_plus, chi_A, eta_turb,
-V_rho_x, rms(drho), Eq. (47) and the drive F_rho are all defined in
-vis/run_quantities.py, from the saved scalar_diagnostics.csv and
-input_copy.input. This script only averages them over the window
+Where the numbers come from: z+, l_perp = 1/k_perp_plus, chi_A, the alignment,
+V_rho_x and the drive F_rho are all defined in vis/run_quantities.py, from the
+saved scalar_diagnostics.csv and input_copy.input. This script forms the two
+ratios at each saved time and averages them over the window
 (run_quantities.time_window): by default the last 40% of each run
-(--tail-fraction), or [--tmin, --tmax]. Unforced runs decay, so chi_A drifts;
-pick a window where it is roughly steady.
+(--tail-fraction), or [--tmin, --tmax]. Runs with different t_max then average
+over different times, so pass --tmin/--tmax to compare like with like.
 
 Runs without a V_rho_x column use acr_g / g, the same correlator; a g = 0 run
-written before V_rho_x existed has no flux point. The window means, including
-the measured diffusivity eta_meas = V_rho_x / F_rho, are also printed and saved
-to a CSV beside the image.
+written before V_rho_x existed has no flux point, and a run with F_rho = 0 has
+neither point. The window means, including the dimensional ones, are also
+printed and saved to a CSV beside the image.
 
 Examples (also usable as main([...]) in Spyder):
-    python vis/plot_flux_closure.py "examples/rho_Kp0_grad_3.0/energy_*"
-    python vis/plot_flux_closure.py RUN_1 RUN_2 --tmin 2 --tmax 10 --show
+    python vis/plot_flux_closure.py "examples/rho_Kp0_grad_3.0/energy_*" --tmin 36 --tmax 60
+    python vis/plot_flux_closure.py RUN_1 RUN_2 --show
 """
 
 from __future__ import annotations
@@ -50,17 +56,23 @@ from vis.plot_slaved_projection import COLORS
 from vis.run_quantities import load_run, resolve_run_dirs, time_window
 
 
+FLUX_CLOSURE = 0.25  # V_rho_x / (F_rho z+ l_perp) = eta_turb / (z+ l_perp), Eq. (80)
+
+
 def read_run(run_dir, *, tmin=None, tmax=None, tail_fraction=0.4):
-    """Window means of chi_A, the flux and its closure, and rms(drho) for one run."""
+    """Window means of chi_A and the two dimensionless closure ratios for one run."""
     run = load_run(run_dir, ["drho"])
     try:
         window = time_window(run.times, tmin=tmin, tmax=tmax, tail_fraction=tail_fraction)
     except ValueError as error:
         raise ValueError(f"{run.run_dir.name}: {error}") from None
 
-    # Quantities are formed at each saved time and only then averaged. A NaN in the
-    # window (a column the CSV lacks) makes that mean NaN, and its marker is skipped.
+    # Each ratio is formed at every saved time and only then averaged. A NaN in the
+    # window (a column the CSV lacks, or F_rho = 0) makes that mean NaN, and its marker is skipped.
     f_rho = run.drives["drho"]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        flux_ratio = run.eta_meas / (run.z_plus * run.l_perp)  # eta_meas = V_rho_x / F_rho
+        drho_ratio = run.measured["drho"] / (abs(f_rho) * run.l_perp)
 
     def mean(values):
         return float(values[window].mean())
@@ -71,59 +83,65 @@ def read_run(run_dir, *, tmin=None, tmax=None, tail_fraction=0.4):
         "t_end": float(run.times[window][-1]),
         "F_rho": float(f_rho),
         "chi_A": mean(run.chi_a),
+        "V_over_F_z_l": mean(flux_ratio),
+        "drho_over_F_l": mean(drho_ratio),
+        "alignment": mean(run.alignment),
+        # Dimensional means, for reference.
         "V_rho_x": mean(run.v_rho_x),
-        "eta_turb_F_rho": mean(run.eta_turb * f_rho),
-        "drho_rms": mean(run.measured["drho"]),
-        "drho_eq47": mean(run.predicted["drho"]),
-        # Diffusivities, for reference.
         "eta_meas": mean(run.eta_meas),
         "eta_turb": mean(run.eta_turb),
+        "drho_rms": mean(run.measured["drho"]),
     }
-    if np.isnan(point["V_rho_x"]):
+    if f_rho == 0.0:
+        print(f"{run.run_dir.name}: F_rho = 0, so neither ratio is defined; not plotted.")
+    elif np.isnan(point["V_rho_x"]):
         print(f"{run.run_dir.name}: no V_rho_x (no column, and g = 0 so acr_g/g cannot stand in); "
               "rerun to save it.")
     return point
 
 
 def print_table(points):
-    print(f"{'run':<32} {'window':>12} {'chi_A':>6} {'V_rho_x':>9} {'eta F_rho':>9} {'drho_rms':>9} {'Eq. 47':>9}")
+    print(f"{'run':<32} {'window':>12} {'chi_A':>6} {'V/(F z+ l)':>10} {'drho/(F l)':>10} {'align':>6}")
     for pt in points:
         window = f"{pt['t_start']:.3g}-{pt['t_end']:.3g}"
-        print(f"{pt['run']:<32} {window:>12} {pt['chi_A']:>6.3g} {pt['V_rho_x']:>9.3g} "
-              f"{pt['eta_turb_F_rho']:>9.3g} {pt['drho_rms']:>9.3g} {pt['drho_eq47']:>9.3g}")
+        print(f"{pt['run']:<32} {window:>12} {pt['chi_A']:>6.3g} {pt['V_over_F_z_l']:>10.3g} "
+              f"{pt['drho_over_F_l']:>10.3g} {pt['alignment']:>6.3g}")
 
 
 def plot_closure(points, output_path, *, window_text, show=False):
-    """Left: V_rho_x and eta_turb F_rho. Right: rms(drho) and Eq. (47). Both against chi_A."""
+    """Left: V_rho_x/(F_rho z+ l_perp). Right: rms(drho)/(|F_rho| l_perp). Both against chi_A."""
     plt = import_pyplot(show=show)
     fig, (ax_flux, ax_drho) = plt.subplots(1, 2, figsize=(12.0, 5.0), constrained_layout=True)
     chi = np.array([pt["chi_A"] for pt in points])
 
-    # Filled: measured, in the density colour. Hollow black: estimate (as in the other vis scripts).
+    # Filled: measured, in the density colour. Black: closure (as in the other vis scripts).
     measured = dict(ls="none", marker="o", ms=7, color=COLORS["drho"])
-    estimate = dict(ls="none", marker="s", ms=7, mfc="none", mec="black")
-    ax_flux.plot(chi, [pt["V_rho_x"] for pt in points], label=r"measured $V_{\rho,x}$", **measured)
-    ax_flux.plot(chi, [pt["eta_turb_F_rho"] for pt in points],
-                 label=r"closure $\eta_{\rm turb}F_\rho$", **estimate)
-    ax_drho.plot(chi, [pt["drho_rms"] for pt in points],
-                 label=r"measured rms$(\delta\rho/\rho_0)$", **measured)
-    ax_drho.plot(chi, [pt["drho_eq47"] for pt in points], label="Eq. (47) estimate", **estimate)
-
+    ax_flux.plot(chi, [pt["V_over_F_z_l"] for pt in points],
+                 label=r"measured $V_{\rho,x}/(F_\rho z^+\ell_\perp)$", **measured)
+    ax_flux.axhline(FLUX_CLOSURE, color="black", ls="--", lw=1.4,
+                    label=r"closure $\eta_{\rm turb}/(z^+\ell_\perp) = 1/4$ (Eq. 80)")
     ax_flux.axhline(0.0, color="0.6", lw=0.8)
-    ax_flux.set(ylabel=r"$V_{\rho,x}$",
-                title=r"Density flux $V_{\rho,x} = \langle(\delta\rho/\rho_0)\,\delta u_x\rangle$"
-                      "\n" r"vs closure $\eta_{\rm turb}F_\rho$, $\eta_{\rm turb} = z^+\ell_\perp/4$ (Eq. 80)")
-    ax_drho.set(ylabel=r"rms$(\delta\rho/\rho_0)$",
-                title=r"Density fluctuation rms$(\delta\rho/\rho_0)$" "\n"
-                      r"vs Eq. (47) $\ell_\perp|F_\rho|\,$rms$(z^+_x)/z^+_{\rm rms}$")
+
+    ax_drho.plot(chi, [pt["drho_over_F_l"] for pt in points],
+                 label=r"measured rms$(\delta\rho/\rho_0)/(|F_\rho|\ell_\perp)$", **measured)
+    ax_drho.plot(chi, [pt["alignment"] for pt in points], ls="none", marker="s", ms=7,
+                 mfc="none", mec="black", label=r"Eq. (47): rms$(z^+_x)/z^+_{\rm rms}$")
+    ax_drho.axhline(1.0 / np.sqrt(2.0), color="black", ls="--", lw=1.0, label=r"isotropic $1/\sqrt{2}$")
+    ax_drho.axhline(0.0, color="0.6", lw=0.8)
+
+    ax_flux.set(ylabel=r"$V_{\rho,x}\,/\,(F_\rho\, z^+_{\rm rms}\,\ell_\perp)$",
+                title="Density flux in eddy units\n"
+                      r"$V_{\rho,x} = \langle(\delta\rho/\rho_0)\,\delta u_x\rangle$")
+    ax_drho.set(ylabel=r"rms$(\delta\rho/\rho_0)\,/\,(|F_\rho|\,\ell_\perp)$",
+                title="Density fluctuation in eddy units\n"
+                      r"(displacement along the gradient / $\ell_\perp$)")
     for ax in (ax_flux, ax_drho):
         ax.axvline(1.0, color="0.5", ls=":", lw=1.0)  # The closure assumes chi_A >~ 1.
         ax.set_xlabel(r"$\chi_A = z^+_{\rm rms}\langle k_\perp\rangle/(v_A\langle k_\parallel\rangle)$")
         ax.grid(alpha=0.3)
         ax.legend(fontsize=9)
 
-    fig.suptitle(f"Plots of density diagnostics",
-                 fontsize=11)
+    fig.suptitle(f"Plots of density diagnostics | window means, {window_text}", fontsize=11)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     finalize_figure(fig, output_path=output_path, show=show, plt=plt)

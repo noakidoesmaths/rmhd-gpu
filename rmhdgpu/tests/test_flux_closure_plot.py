@@ -66,13 +66,25 @@ def test_window_means(tmp_path):
     assert (point["t_start"], point["t_end"]) == (1.0, 2.0)
     assert point["F_rho"] == pytest.approx(F_RHO)
     assert point["chi_A"] == pytest.approx(2.0)
-    assert point["V_rho_x"] == pytest.approx(-0.01875)
-    assert point["eta_turb_F_rho"] == pytest.approx(-0.0125)
-    assert point["eta_meas"] == pytest.approx(0.375)  # V_rho_x / F_rho = 0.25, 0.5
+    # V_rho_x / F_rho = 0.25, 0.5 and z+ l_perp = 1, so the closure value would be 0.25.
+    assert point["V_over_F_z_l"] == pytest.approx(0.375)
+    assert point["eta_meas"] == pytest.approx(0.375)
     assert point["eta_turb"] == pytest.approx(0.25)
+    # rms(drho) / (|F_rho| l_perp) = 2 / 0.025 and 4 / 0.025.
+    assert point["drho_over_F_l"] == pytest.approx(120.0)
+    assert point["alignment"] == pytest.approx(0.5)
+    assert point["V_rho_x"] == pytest.approx(-0.01875)
     assert point["drho_rms"] == pytest.approx(3.0)
-    # Eq. (47): l_perp |F_rho| alignment = 0.5 * 0.05 * 0.5.
-    assert point["drho_eq47"] == pytest.approx(0.0125)
+
+
+def test_zero_drive_has_no_ratios(tmp_path, capsys):
+    run_dir = write_run(tmp_path / "run", {**BASE_COLUMNS, "V_rho_x": [0.0] * 4})
+    physics = PHYSICS.format(g=0.0).replace("K_p0 = 0.5", "K_p0 = 0.0").replace("K_rho0 = 0.3", "K_rho0 = 0.0")
+    (run_dir / "input_copy.input").write_text(physics, encoding="utf-8")
+    point = closure.read_run(run_dir)
+    assert point["F_rho"] == 0.0
+    assert np.isnan(point["V_over_F_z_l"]) and np.isinf(point["drho_over_F_l"])
+    assert "F_rho = 0" in capsys.readouterr().out
 
 
 def test_main_writes_figure_and_summary(tmp_path, monkeypatch):
@@ -93,8 +105,8 @@ def test_main_writes_figure_and_summary(tmp_path, monkeypatch):
     assert output == tmp_path / "flux_closure.png" and output.exists()
     with output.with_suffix(".csv").open(encoding="utf-8", newline="") as handle:
         rows = {row["run"]: row for row in csv.DictReader(handle)}
-    assert float(rows["down"]["V_rho_x"]) == pytest.approx(-0.0125)
-    assert float(rows["counter"]["V_rho_x"]) == pytest.approx(0.0125)
+    assert float(rows["down"]["V_over_F_z_l"]) == pytest.approx(0.25)
+    assert float(rows["counter"]["V_over_F_z_l"]) == pytest.approx(-0.25)
     assert rows["no_flux"]["V_rho_x"] == "nan"
 
     fig = figures[0]
@@ -102,10 +114,11 @@ def test_main_writes_figure_and_summary(tmp_path, monkeypatch):
     ax_flux, ax_drho = fig.axes
     assert ax_flux.get_xscale() == ax_flux.get_yscale() == "linear"
     assert not ax_flux.containers  # No error bars.
-    # Runs are sorted: counter, down, no_flux. The signed flux is plotted, NaN for no_flux.
+    # Runs are sorted: counter, down, no_flux. z+ l_perp = 1, so the points are V_rho_x / F_rho.
     np.testing.assert_allclose(ax_flux.lines[0].get_xdata(), [2.0] * 3)
-    np.testing.assert_allclose(ax_flux.lines[0].get_ydata(), [0.0125, -0.0125, np.nan])
-    # With g = 0, F_rho = -K_rho0 = -0.3, so no_flux still has a closure point: 0.25 * -0.3.
-    np.testing.assert_allclose(ax_flux.lines[1].get_ydata(), [-0.0125, -0.0125, -0.075])
-    # Window t = 1, 2, 3: mean rms(drho) = 14/3 in every run.
-    np.testing.assert_allclose(ax_drho.lines[0].get_ydata(), [14 / 3] * 3)
+    np.testing.assert_allclose(ax_flux.lines[0].get_ydata(), [-0.25, 0.25, np.nan])
+    np.testing.assert_allclose(ax_flux.lines[1].get_ydata(), [0.25, 0.25])  # Closure line at 1/4.
+    # Window t = 1, 2, 3: rms(drho) = 2, 4, 8 over |F_rho| l_perp = 0.025 (g = 4) or 0.15 (g = 0,
+    # where F_rho = -K_rho0 = -0.3).
+    np.testing.assert_allclose(ax_drho.lines[0].get_ydata(), [560 / 3, 560 / 3, 280 / 9])
+    np.testing.assert_allclose(ax_drho.lines[1].get_ydata(), [0.5] * 3)  # Eq. (47): the alignment.
