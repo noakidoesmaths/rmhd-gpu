@@ -4,7 +4,7 @@
 # gradients some of the injected z+ also leaks linearly into z- and the
 # compressive fields. Try a few tau_F values to see which holds the amplitude.
 title = "Nokia rho controlled forcing: target amplitude"
-output_dir = "outputs/controlled_target_nokia_rho"
+output_dir = "outputs_test_forcing/controlled_target_3.0_tau_2.0"
 
 [equations]
 type = "inhomogeneous_rmhd_rho"
@@ -16,7 +16,7 @@ Ny = 32
 Nz = 32
 
 [time]
-tmax = 20.0
+tmax = 40.0
 dt_init = 1.0e-3
 use_variable_dt = true
 cfl_number = 0.2
@@ -41,7 +41,18 @@ g = 0.06
 K_p0 = 1.0
 
 [initial_condition]
-type = "zero"
+type = "random_spectrum_one_wave"
+
+[initial_condition.parameters]
+n_min_perp = 1.0
+n_max_perp = 3.0
+n_min_prl = 1.0
+n_max_prl = 3.0
+alpha = 4.67
+alpha_prl = 1.67
+init_energy = 4.0
+seed = 1
+exclude_kpar0 = false
 
 [forcing]
 use_forcing = true
@@ -69,8 +80,8 @@ control = "target"
 target_scope = "branch_total"
 target_basis = "elsasser"
 target_quantity = "rms"
-target_value = 0.2
-tau_F = 5.235987755982989
+target_value = 2.0
+tau_F = 2.0
 startup_energy_fraction = 1.0
 ring_floor_fraction = 0.01
 
