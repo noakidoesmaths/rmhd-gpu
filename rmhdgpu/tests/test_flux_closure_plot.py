@@ -121,4 +121,6 @@ def test_main_writes_figure_and_summary(tmp_path, monkeypatch):
     # Window t = 1, 2, 3: rms(drho) = 2, 4, 8 over |F_rho| l_perp = 0.025 (g = 4) or 0.15 (g = 0,
     # where F_rho = -K_rho0 = -0.3).
     np.testing.assert_allclose(ax_drho.lines[0].get_ydata(), [560 / 3, 560 / 3, 280 / 9])
-    np.testing.assert_allclose(ax_drho.lines[1].get_ydata(), [0.5] * 3)  # Eq. (47): the alignment.
+    # Only the measured points are labelled: no Eq. (47) markers or isotropic line.
+    labels = ax_drho.get_legend_handles_labels()[1]
+    assert len(labels) == 1 and labels[0].startswith("measured")

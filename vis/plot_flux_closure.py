@@ -1,25 +1,23 @@
 """Plot the dimensionless density flux and density fluctuation against chi_A.
 
-Squire et al., arXiv:2607.08036, Eqs. (47), (79) and (80). The closure says the
+Squire et al., arXiv:2607.08036, Eqs. (79) and (80). The closure says the
 density flux across the background gradient is diffusive, with an eddy-scale
-diffusivity and an eddy-scale displacement:
+diffusivity:
 
     V_rho_x = <(delta rho/rho_0) delta u_x>  ~  eta_turb F_rho,   eta_turb = z+_rms l_perp / 4   (Eq. 80)
-    rms(delta rho/rho_0)                     ~  |F_rho| l_perp rms(z+_x)/z+_rms                 (Eq. 47)
 
 V_rho_x is a velocity and F_rho a gradient (1/length), so dividing out the drive
-F_rho and the eddy scales makes both dimensionless:
+F_rho and the eddy scales makes both panels dimensionless:
 
-    left:   V_rho_x / (F_rho z+_rms l_perp)              closure: 1/4
-    right:  rms(delta rho/rho_0) / (|F_rho| l_perp)      closure: rms(z+_x)/z+_rms
+    left:   V_rho_x / (F_rho z+_rms l_perp)              closure: 1/4 (dashed line)
+    right:  rms(delta rho/rho_0) / (|F_rho| l_perp)      an effective displacement in units of l_perp
 
 The left ratio is also the measured diffusivity eta_meas = V_rho_x / F_rho in
 units of z+ l_perp. Each run is one point against its chi_A, so runs with
 different K_rho0 or amplitude can share one plot, and the closure is a flat
 line. The paper notes the closure assumes strong turbulence, chi_A >~ 1
-(dotted line). The right panel's estimate is drawn per run (hollow), since the
-alignment rms(z+_x)/z+_rms is measured; the isotropic value 1/sqrt(2) is the
-dashed line.
+(dotted line). The right panel has no estimate drawn: rms(delta rho) also counts
+small-scale filaments that carry no flux, so it is shown for reference only.
 
 Where the numbers come from: z+, l_perp = 1/k_perp_plus, chi_A, the alignment,
 V_rho_x and the drive F_rho are all defined in vis/run_quantities.py, from the
@@ -72,7 +70,7 @@ def read_run(run_dir, *, tmin=None, tmax=None, tail_fraction=0.4):
     f_rho = run.drives["drho"]
     with np.errstate(divide="ignore", invalid="ignore"):
         flux_ratio = run.eta_meas / (run.z_plus * run.l_perp)  # eta_meas = V_rho_x / F_rho
-        drho_ratio = run.measured["drho"] / (abs(f_rho) * run.l_perp)
+        drho_ratio = run.measured["drho"]
 
     def mean(values):
         return float(values[window].mean())
@@ -122,17 +120,14 @@ def plot_closure(points, output_path, *, window_text, show=False):
                     label=r"closure $\eta_{\rm turb}/(z^+\ell_\perp) = 1/4$ (Eq. 80)")
     ax_flux.axhline(0.0, color="0.6", lw=0.8)
 
-    ax_drho.plot(chi, [pt["drho_over_F_l"] for pt in points],
-                 label=r"measured rms$(\delta\rho/\rho_0)/(|F_\rho|\ell_\perp)$", **measured)
-    ax_drho.plot(chi, [pt["alignment"] for pt in points], ls="none", marker="s", ms=7,
-                 mfc="none", mec="black", label=r"Eq. (47): rms$(z^+_x)/z^+_{\rm rms}$")
-    ax_drho.axhline(1.0 / np.sqrt(2.0), color="black", ls="--", lw=1.0, label=r"isotropic $1/\sqrt{2}$")
+    ax_drho.plot(chi, [pt["drho_rms"] for pt in points],
+                 label=r"measured rms$(\delta\rho/\rho_0)$", **measured)
     ax_drho.axhline(0.0, color="0.6", lw=0.8)
 
     ax_flux.set(ylabel=r"$V_{\rho,x}\,/\,(F_\rho\, z^+_{\rm rms}\,\ell_\perp)$",
                 title="Density flux in eddy units\n"
                       r"$V_{\rho,x} = \langle(\delta\rho/\rho_0)\,\delta u_x\rangle$")
-    ax_drho.set(ylabel=r"rms$(\delta\rho/\rho_0)\,/\,(|F_\rho|\,\ell_\perp)$",
+    ax_drho.set(ylabel=r"rms$(\delta\rho/\rho_0)$",
                 title="Density fluctuation in eddy units\n"
                       r"(displacement along the gradient / $\ell_\perp$)")
     for ax in (ax_flux, ax_drho):
