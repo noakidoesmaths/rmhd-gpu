@@ -125,11 +125,9 @@ def plot_closure(points, output_path, *, window_text, show=False):
     ax_drho.axhline(0.0, color="0.6", lw=0.8)
 
     ax_flux.set(ylabel=r"$V_{\rho,x}\,/\,(F_\rho\, z^+_{\rm rms}\,\ell_\perp)$",
-                title="Density flux in eddy units\n"
-                      r"$V_{\rho,x} = \langle(\delta\rho/\rho_0)\,\delta u_x\rangle$")
+                title=r"$V_{\rho,x} = \langle(\delta\rho/\rho_0)\,\delta u_x\rangle$ vs $\chi_A$")
     ax_drho.set(ylabel=r"rms$(\delta\rho/\rho_0)$",
-                title="Density fluctuation in eddy units\n"
-                      r"(displacement along the gradient / $\ell_\perp$)")
+                title=r"Rms drho vs $\chi_A$")
     for ax in (ax_flux, ax_drho):
         ax.axvline(1.0, color="0.5", ls=":", lw=1.0)  # The closure assumes chi_A >~ 1.
         ax.set_xlabel(r"$\chi_A = z^+_{\rm rms}\langle k_\perp\rangle/(v_A\langle k_\parallel\rangle)$")
