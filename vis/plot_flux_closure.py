@@ -18,6 +18,8 @@ different K_rho0 or amplitude can share one plot, and the closure is a flat
 line. The paper notes the closure assumes strong turbulence, chi_A >~ 1
 (dotted line). The right panel has no estimate drawn: rms(delta rho) also counts
 small-scale filaments that carry no flux, so it is shown for reference only.
+Both panels are log-log; a run with V_rho_x/F_rho <= 0 cannot be shown on the
+log axis and is reported on the console instead.
 
 Where the numbers come from: z+, l_perp = 1/k_perp_plus, chi_A, the alignment,
 V_rho_x and the drive F_rho are all defined in vis/run_quantities.py, from the
@@ -109,6 +111,10 @@ def print_table(points):
 def plot_closure(points, output_path, *, window_text, show=False):
     """Left: V_rho_x/(F_rho z+ l_perp). Right: rms(drho)/(|F_rho| l_perp). Both against chi_A."""
     plt = import_pyplot(show=show)
+    for pt in points:
+        if pt["V_over_F_z_l"] <= 0.0:  # NaN compares False, so only real non-positive values warn.
+            print(f"{pt['run']}: V_rho_x/(F_rho z+ l_perp) = {pt['V_over_F_z_l']:.3g} <= 0; "
+                  "not shown on the log axis.")
     fig, (ax_flux, ax_drho) = plt.subplots(1, 2, figsize=(12.0, 5.0), constrained_layout=True)
     chi = np.array([pt["chi_A"] for pt in points])
 
@@ -118,11 +124,9 @@ def plot_closure(points, output_path, *, window_text, show=False):
                  label=r"measured $V_{\rho,x}/(F_\rho z^+\ell_\perp)$", **measured)
     ax_flux.axhline(FLUX_CLOSURE, color="black", ls="--", lw=1.4,
                     label=r"closure $\eta_{\rm turb}/(z^+\ell_\perp) = 1/4$ (Eq. 80)")
-    ax_flux.axhline(0.0, color="0.6", lw=0.8)
 
     ax_drho.plot(chi, [pt["drho_rms"] for pt in points],
                  label=r"measured rms$(\delta\rho/\rho_0)$", **measured)
-    ax_drho.axhline(0.0, color="0.6", lw=0.8)
 
     ax_flux.set(ylabel=r"$V_{\rho,x}\,/\,(F_\rho\, z^+_{\rm rms}\,\ell_\perp)$",
                 title=r"$V_{\rho,x} = \langle(\delta\rho/\rho_0)\,\delta u_x\rangle$ vs $\chi_A$")
@@ -130,8 +134,10 @@ def plot_closure(points, output_path, *, window_text, show=False):
                 title=r"Rms drho vs $\chi_A$")
     for ax in (ax_flux, ax_drho):
         ax.axvline(1.0, color="0.5", ls=":", lw=1.0)  # The closure assumes chi_A >~ 1.
+        ax.set_xscale("log")
+        ax.set_yscale("log")
         ax.set_xlabel(r"$\chi_A = z^+_{\rm rms}\langle k_\perp\rangle/(v_A\langle k_\parallel\rangle)$")
-        ax.grid(alpha=0.3)
+        ax.grid(alpha=0.3, which="both")
         ax.legend(fontsize=9)
 
     fig.suptitle(f"Plots of density diagnostics | window means, {window_text}", fontsize=11)
