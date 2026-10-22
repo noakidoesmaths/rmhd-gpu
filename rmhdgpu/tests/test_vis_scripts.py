@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from vis.plot_chi_a import main as plot_chi_a_main
 from vis.plot_fullfield import main as plot_fullfield_main
 from vis.plot_scalars import main as plot_scalars_main
 from vis.plot_spectra import main as plot_spectra_main
@@ -47,6 +48,22 @@ def test_plot_scalars_log_smoke_skips_nonpositive_columns(tmp_path) -> None:
 
     assert result == output_path.resolve()
     assert output_path.exists()
+
+
+@pytest.mark.parametrize("extra_args", [[], ["--log"]])
+def test_plot_chi_a_smoke(tmp_path, extra_args) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    with (run_dir / "scalar_diagnostics.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["time", "w_plus", "k_perp_plus", "k_prl_plus", "vA"])
+        writer.writeheader()
+        writer.writerow({"time": 0.0, "w_plus": 0.04, "k_perp_plus": 2.0, "k_prl_plus": 1.0, "vA": 1.0})
+        writer.writerow({"time": 0.1, "w_plus": 0.04, "k_perp_plus": 2.2, "k_prl_plus": 1.0, "vA": 1.0})
+
+    result = plot_chi_a_main([str(run_dir), *extra_args])
+
+    assert result == run_dir / "chi_a.png"
+    assert result.exists()
 
 
 def test_plot_scalars_log_requires_positive_columns(tmp_path) -> None:

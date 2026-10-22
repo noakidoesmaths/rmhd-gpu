@@ -1,4 +1,4 @@
-"""Plot the turbulence strength chi_A against time for one or more runs.
+"""Plot the turbulence strength chi_A and its three factors against time for one or more runs.
 
     chi_A = z+_rms k_perp_plus / (vA k_prl_plus)
 
@@ -10,6 +10,11 @@ agrees with every other plot that uses chi_A.
 Only scalar_diagnostics.csv is read. It needs the columns w_plus, k_perp_plus,
 k_prl_plus and vA, which the inhomogeneous (nokia) equation sets save. A plain
 homogeneous run does not save them, and the script says so.
+
+The figure is 2x2: chi_A and its three factors z+_rms, k_perp_plus and
+k_prl_plus, which shows which one is still changing when chi_A drifts. All
+values are in code units: speeds in units of vA, wavenumbers in units of
+2 pi / L, time in units of L / (2 pi vA).
 
 Examples (also usable as main([...]) in Spyder):
     python vis/plot_chi_a.py examples/outputs_nokia_rmhd_52_rho
@@ -32,7 +37,7 @@ NEEDED_COLUMNS = ["time", "w_plus", "k_perp_plus", "k_prl_plus", "vA"]
 
 
 def load_chi_a(run_dir):
-    """Saved times and chi_A of z+ for one run directory."""
+    """Saved times, chi_A of z+ and its three factors for one run directory."""
     columns = read_columns(Path(run_dir) / "scalar_diagnostics.csv")
     missing = [name for name in NEEDED_COLUMNS if name not in columns]
     if missing:
@@ -40,24 +45,38 @@ def load_chi_a(run_dir):
 
     z_plus = elsasser_rms(columns["w_plus"])
     chi_a = turbulence_strength(z_plus, columns["k_perp_plus"], columns["k_prl_plus"], columns["vA"])
-    return columns["time"], chi_a
+    return {"time": columns["time"], "chi_a": chi_a, "z_plus": z_plus,
+            "k_perp_plus": columns["k_perp_plus"], "k_prl_plus": columns["k_prl_plus"]}
+
+
+# (key in load_chi_a, y label) of each panel, in reading order.
+PANELS = [
+    ("chi_a", r"$\chi_A = z^+_{\rm rms}\langle k_\perp\rangle / (v_A \langle k_\parallel\rangle)$"),
+    ("z_plus", r"$z^+_{\rm rms} / v_A$"),
+    ("k_perp_plus", r"$\langle k_\perp\rangle^+$  (units of $2\pi/L$)"),
+    ("k_prl_plus", r"$\langle k_\parallel\rangle^+$  (units of $2\pi/L$)"),
+]
 
 
 def plot_chi_a(run_dirs, output_path, show=False, log=False):
     plt = import_pyplot(show=show)
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, axes = plt.subplots(2, 2, figsize=(11, 7), sharex=True)
 
     for run_dir in run_dirs:
-        times, chi_a = load_chi_a(run_dir)
-        ax.plot(times, chi_a, label=Path(run_dir).name)
+        data = load_chi_a(run_dir)
+        for ax, (key, _) in zip(axes.flat, PANELS):
+            ax.plot(data["time"], data[key], label=Path(run_dir).name)
 
-    ax.axhline(1.0, color="0.5", ls=":", lw=1.0, label=r"$\chi_A = 1$ (critical balance)")
-    if log:
-        ax.set_yscale("log")
-    ax.set_xlabel("time")
-    ax.set_ylabel(r"$\chi_A = z^+_{\rm rms}\langle k_\perp\rangle / (v_A \langle k_\parallel\rangle)$")
-    ax.set_title(r"Turbulence strength $\chi_A$")
-    ax.legend(fontsize=9)
+    chi_ax = axes[0, 0]
+    chi_ax.axhline(1.0, color="0.5", ls=":", lw=1.0, label=r"$\chi_A = 1$ (critical balance)")
+    for ax, (_, ylabel) in zip(axes.flat, PANELS):
+        if log:
+            ax.set_yscale("log")
+        ax.set_ylabel(ylabel)
+    for ax in axes[1]:
+        ax.set_xlabel("time")
+    chi_ax.legend(fontsize=9)
+    fig.suptitle(r"Turbulence strength $\chi_A$ and its factors")
     fig.tight_layout()
     finalize_figure(fig, output_path=output_path, show=show, plt=plt)
 
@@ -67,7 +86,7 @@ def build_parser():
     parser.add_argument("run_dirs", nargs="+", help="Run output directories (quoted wildcards are fine).")
     parser.add_argument("--output", type=Path,
                         help="Image path; default: chi_a.png in the first run directory.")
-    parser.add_argument("--log", action="store_true", help="Use a log y axis.")
+    parser.add_argument("--log", action="store_true", help="Use log y axes.")
     parser.add_argument("--show", action="store_true", help="Show the figure after saving (e.g. in Spyder).")
     return parser
 
