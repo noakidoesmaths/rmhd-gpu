@@ -20,6 +20,7 @@ examples/outputs_*/
 examples/nokias_inhomo_rho.input
 examples/nokias_inhomo_s.input
 examples/rho_Kp0_*
+examples/Kp0_forcing/
 
 # Ignore generated files
 *.log
