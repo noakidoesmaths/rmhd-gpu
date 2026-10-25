@@ -28,6 +28,8 @@ ratios at each saved time and averages them over the window
 (run_quantities.time_window): by default the last 40% of each run
 (--tail-fraction), or [--tmin, --tmax]. Runs with different t_max then average
 over different times, so pass --tmin/--tmax to compare like with like.
+Check first with vis/plot_flux_convergence.py that the ratio has settled over
+that window: it plots the same ratio against time, with the window marked.
 
 Runs without a V_rho_x column use acr_g / g, the same correlator; a g = 0 run
 written before V_rho_x existed has no flux point, and a run with F_rho = 0 has

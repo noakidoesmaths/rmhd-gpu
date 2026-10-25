@@ -63,11 +63,20 @@ class AutoDissipationSettings:
     nu_min: float = 1.0e-12
     nu_max: float = 1.0e2
     max_update_factor: float = 2.0
+    # Which energy the controller measures in the k_d shell: "total" (every
+    # evolved field, the solver's total_energy) or "alfvenic" (u_perp + b_perp
+    # only). "alfvenic" keeps a passive scalar such as drho at g = 0, whose size
+    # is set by the arbitrary K_rho0, from changing nu.
+    shell_energy: str = "total"
 
     def __post_init__(self) -> None:
         if self.mode not in {"manual", "auto"}:
             raise ValueError(
                 f"auto_dissipation.mode must be 'manual' or 'auto'; got {self.mode!r}."
+            )
+        if self.shell_energy not in {"total", "alfvenic"}:
+            raise ValueError(
+                f"auto_dissipation.shell_energy must be 'total' or 'alfvenic'; got {self.shell_energy!r}."
             )
 
         for name in ("n_perp", "n_par", "update_every"):

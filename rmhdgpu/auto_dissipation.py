@@ -14,7 +14,9 @@ fluctuation amplitudes
 so the controller uses the same quadratic modal density as the solver's saved
 `total_energy` diagnostic rather than raw `|phi_hat|^2` or `|psi_hat|^2`.
 That includes the same compressive-sector weights used by the S09 budget
-diagnostics.
+diagnostics. With `shell_energy = "alfvenic"` the controller measures only the
+`u_perp + b_perp` part instead, so a passive scalar (drho at g = 0, whose size
+is set by the arbitrary background gradient K_rho0) cannot change nu.
 
 Around `k_d`, the controller defines a logarithmic shell
 
@@ -128,10 +130,26 @@ class AutoDissipationController:
 
         return step > 0 and step % self.settings.update_every == 0
 
+    def shell_energy_density(self, state: Any, params: Any) -> Any:
+        """Modal energy density the controller measures, selected by `settings.shell_energy`.
+
+        "total" is the solver's total-energy density, every evolved field included.
+        "alfvenic" keeps only the flow, `0.5 k_perp^2 (|phi_hat|^2 + |psi_hat|^2)`,
+        i.e. `u_perp ~ grad_perp phi` and `b_perp ~ grad_perp psi` with the same
+        normalization as the Alfvénic part of "total". Every equation set
+        evolves `psi` and `omega`, so this works for all of them.
+        """
+
+        if self.settings.shell_energy == "alfvenic":
+            xp = self.backend.xp
+            phi_hat = self.equation_module.derive_phi_hat(state["omega"], self.grid)
+            return 0.5 * self.grid.kperp2 * (xp.abs(phi_hat) ** 2 + xp.abs(state["psi"]) ** 2)
+        return self.equation_module.total_energy_modal_density(state, self.grid, self.backend, params)
+
     def update(self, state: Any, params: Any) -> float:
         """Refresh the effective coefficient from the current Fourier state."""
 
-        density_hat = self.equation_module.total_energy_modal_density(state, self.grid, self.backend, params)
+        density_hat = self.shell_energy_density(state, params)
         self.last_Ed = modal_density_average(
             density_hat,
             self.grid,

@@ -4,11 +4,12 @@ import csv
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from rmhdgpu.auto_dissipation import AutoDissipationController
 from rmhdgpu.backend import build_backend
 from rmhdgpu.config import Config
-from rmhdgpu.equations import s09
+from rmhdgpu.equations import get_equation_module, s09
 from rmhdgpu.fft import FFTManager
 from rmhdgpu.grid import build_grid
 from rmhdgpu.initconds import build_initial_state
@@ -296,3 +297,78 @@ def test_auto_dissipation_scalar_columns_written(tmp_path) -> None:
     ):
         assert name in reader.fieldnames
     assert rows
+
+
+# ---------------------------------------------------------------------------
+# shell_energy = "alfvenic": measure only u_perp + b_perp in the k_d shell
+# ---------------------------------------------------------------------------
+
+def _rho_controller(shell_energy: str) -> tuple[AutoDissipationController, State, Config]:
+    """Controller and a random state for the inhomogeneous rho equations, where drho is passive at g = 0."""
+    config = Config(
+        Nx=8,
+        Ny=8,
+        Nz=8,
+        backend="numpy",
+        equation_set="inhomogeneous_rmhd_rho",
+        g=0.0,
+        K_p0=0.0,
+        K_rho0=3.0,
+        # Shell from k_d/e to the corner, so it holds random_spectrum energy on an 8^3 grid.
+        auto_dissipation={"mode": "auto", "shell_energy": shell_energy, "kd_fraction": 1.0, "shell_half_width": 1.0},
+    )
+    backend, grid, state, mask = _build_test_state(config)
+    module = get_equation_module(config.equation_set)
+    controller = AutoDissipationController.from_runtime(
+        settings=config.auto_dissipation,
+        equation_module=module,
+        field_names=config.field_names,
+        grid=grid,
+        backend=backend,
+        dealias_mask=mask,
+    )
+    return controller, state, config
+
+
+def _shell_energy(controller: AutoDissipationController, state: State, config: Config) -> float:
+    controller.update(state, config)
+    return controller.last_Ed
+
+
+def test_shell_energy_defaults_to_total_and_parses(tmp_path) -> None:
+    assert Config(auto_dissipation={"mode": "auto"}).auto_dissipation.shell_energy == "total"
+
+    input_file = tmp_path / "auto.input"
+    _write_auto_input(input_file)
+    input_file.write_text(input_file.read_text(encoding="utf-8") + 'shell_energy = "alfvenic"\n', encoding="utf-8")
+    settings = resolve_run_settings(runfile_path=input_file)
+    assert settings.config.auto_dissipation.shell_energy == "alfvenic"
+
+
+def test_shell_energy_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError, match="shell_energy"):
+        Config(auto_dissipation={"mode": "auto", "shell_energy": "kinetic"})
+
+
+def test_alfvenic_shell_energy_ignores_drho() -> None:
+    """Scaling the passive drho changes the "total" shell energy but not the "alfvenic" one."""
+    for shell_energy, should_change in (("total", True), ("alfvenic", False)):
+        controller, state, config = _rho_controller(shell_energy)
+        state["drho"] = state["psi"].copy()  # Give drho shell energy whatever the initial condition put there.
+        before = _shell_energy(controller, state, config)
+        state["drho"] = 10.0 * state["drho"]
+        after = _shell_energy(controller, state, config)
+        assert before > 0.0
+        assert (after != pytest.approx(before)) is should_change
+
+
+def test_alfvenic_shell_energy_matches_total_without_compressive_fields() -> None:
+    """With du_par = db_par = drho = 0 both measures are the same u_perp + b_perp energy (same normalization)."""
+    energies = {}
+    for shell_energy in ("total", "alfvenic"):
+        controller, state, config = _rho_controller(shell_energy)
+        for name in ("du_par", "db_par", "drho"):
+            state[name] = 0.0 * state[name]
+        energies[shell_energy] = _shell_energy(controller, state, config)
+    assert energies["total"] > 0.0
+    assert energies["alfvenic"] == pytest.approx(energies["total"], rel=1e-12)

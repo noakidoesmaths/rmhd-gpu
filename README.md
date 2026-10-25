@@ -419,6 +419,7 @@ Meaning of the main settings:
 - `smooth_factor`: log-space smoothing strength; larger values react faster
 - `nu_par`: fixed common parallel coefficient used in auto mode
 - `n_perp`, `n_par`: common perpendicular and parallel hyper-orders used for every field
+- `shell_energy`: what the controller measures in the `k_d` shell. `"total"` (the default) is the full `total_energy`, every field included; `"alfvenic"` counts only `u_perp + b_perp`. Use `"alfvenic"` when a field is a passive scalar, e.g. `drho` with `g = 0`: its size is set by the arbitrary `K_rho0`, so under `"total"` it would change how hard the flow is damped. The chosen coefficient is still applied to every field
 
 ### Initial Conditions
 
@@ -507,6 +508,7 @@ Useful notes:
 - `plot_cross_helicity.py` plots `sigma_c = (W+ - W-)/(W+ + W-)` for the inhomogeneous RMHD sets; pass several run directories to overlay them (`sigma_c = 1` is pure `z+`)
 - `plot_chi_a.py` plots the turbulence strength `chi_A = z+_rms k_perp_plus / (vA k_prl_plus)` against time, together with its factors `z+_rms`, `k_perp_plus` and `k_prl_plus`, for one or more inhomogeneous runs, e.g. `python vis/plot_chi_a.py "examples/outputs_nokia_rmhd_5*_rho" --show`
 - `plot_flux_closure.py` tests the density-flux closure in dimensionless form against `chi_A`, one window-averaged point per run: `V_rho_x/(F_rho z+ l_perp)` (closure: 1/4) and, for reference, `rms(drho)/(|F_rho| l_perp)`, e.g. `python vis/plot_flux_closure.py "examples/outputs_*_rho" --tmin 2 --tmax 10`
+- `plot_flux_convergence.py` checks that those closure points have settled: it plots `V_rho_x/(F_rho z+ l_perp)` (with block means), `z-/z+`, `chi_A` and the auto-dissipation `nu_perp` against time, marks the averaging window, and prints each run's drift (second-half over first-half window mean, minus 1), e.g. `python vis/plot_flux_convergence.py "examples/Kp0_forcing/*"`
 - `run_quantities.py` is not a plot: it defines the derived quantities the inhomogeneous RMHD plots share (`z±`, `l_perp`, `chi_A`, `eta_turb`, the slaved-closure estimates) from a run's saved CSV and input. Use it in Spyder with `run = load_run("RUN_DIRECTORY")`, then `run.chi_a`, `run.l_perp`, and so on. It also reads CSVs written before 2026-10-08, when the `k_perp_plus`/`k_prl_plus` columns were called `w_plus_kperp`/`w_plus_kprl`
 - most driver, plotting, profiling, and example scripts support `--help` to print available options
 

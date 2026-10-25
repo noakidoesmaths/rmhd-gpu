@@ -82,6 +82,7 @@ _AUTO_DISSIPATION_KEYS = {
     "nu_min",
     "nu_max",
     "max_update_factor",
+    "shell_energy",
 }
 _SECTION_TO_CONFIG_KEYS = {
     "equations": {"equation_set", "equation_mode"},
