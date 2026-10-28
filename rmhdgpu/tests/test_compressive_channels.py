@@ -46,7 +46,7 @@ PHYSICS = {
 # The channel columns, in the order `channel_scalar_diagnostics` writes them.
 CHANNEL_COLUMNS = [
     "w_plus", "w_minus", "k_perp_plus", "k_perp_minus", "k_prl_plus", "k_prl_minus",
-    "w_plus_align", "w_minus_align", "u_perp_rms", "b_perp_rms", "V_rho_x", "q_dcf", "q_ccr_source",
+    "w_plus_align", "w_minus_align", "u_perp_rms", "b_perp_rms", "V_rho_x", "V_psi_x", "q_dcf", "q_ccr_source",
     "N_sq", "vA", "acr_B", "acr_g", "acr_th",
 ]
 
@@ -340,8 +340,8 @@ def test_perp_rms_matches_real_space_and_elsasser_energies(equation_set):
 def test_fluxes_match_real_space_averages(equation_set):
     """Every flux equals its Eq. (79) average measured in real space.
 
-    Also pins the saved V_rho_x column, the z± split of V_rho_x, and the two
-    ACR channels written directly in terms of the fluxes.
+    Also pins the saved V_rho_x and V_psi_x columns, the z± split of V_rho_x,
+    and the two ACR channels written directly in terms of the fluxes.
     """
 
     module = EQUATION_MODULES[equation_set]
@@ -369,6 +369,7 @@ def test_fluxes_match_real_space_averages(equation_set):
         assert fluxes[name] == pytest.approx(value, rel=1.0e-12), name
 
     assert diagnostics["V_rho_x"] == fluxes["V_rho_x"]
+    assert diagnostics["V_psi_x"] == fluxes["V_psi_x"]
     assert fluxes["V_rho_x_plus"] + fluxes["V_rho_x_minus"] == pytest.approx(fluxes["V_rho_x"], rel=1.0e-12)
     assert fluxes["acr_g"] == pytest.approx(p.g * fluxes["V_rho_x"], rel=1.0e-12)
     assert fluxes["acr_B"] == pytest.approx(-p.vA**2 * p.K_b0 * fluxes["V_psi_x"], rel=1.0e-12)
@@ -431,12 +432,50 @@ def test_background_drives_are_the_ideal_rhs_coefficients(equation_set):
         assert error <= 1.0e-12 * scale, name
 
 
+def test_slaved_fields_give_the_closure_flux_ratio():
+    """Slaved fields in a pure z+ state give V_psi_x / V_rho_x = F_psi / F_rho exactly.
+
+    Eq. (46) slaving across a displacement xi along x sets drho = F_rho xi,
+    du_par/vA = F_u xi and (vA^2/vS^2) db_par = F_B xi. Then V_rho_x =
+    F_rho <xi u_x> and V_psi_x = (F_u + vS^2/vA^2 F_B) <xi u_x>, so the
+    closures of Eqs. (80) and (85) share one eta_turb. This pins `psi_drive`
+    against the V_psi_x of `fluxes_and_channels`.
+    """
+
+    config, backend, grid, fft, _workspace, mask = _build_context("inhomogeneous_rmhd_rho")
+    p = rmhd_by_nokia_rho.derived_parameters(config)
+    rng = np.random.default_rng(11)
+
+    def random_hat() -> Any:
+        real_field = backend.xp.asarray(rng.standard_normal(grid.real_shape).astype(grid.real_dtype))
+        return fft.r2c(real_field) * mask
+
+    psi_hat = random_hat() * (grid.kperp2 > 0.0)
+    xi_hat = random_hat()
+    drives = channels.background_drives(p)
+    units = channels.slaved_field_units(p)
+    fields = channels.ChannelFields(
+        phi_hat=-psi_hat,  # phi = -psi: pure z+, so b_x = -u_x.
+        psi_hat=psi_hat,
+        du_par_hat=units["du_par"] * drives["du_par"] * xi_hat,
+        db_par_hat=units["db_par"] * drives["db_par"] * xi_hat,
+        drho_hat=units["drho"] * drives["drho"] * xi_hat,
+    )
+    fluxes = channels.fluxes_and_channels(fields, grid, backend, p)
+    f_psi = channels.psi_drive(p)
+
+    assert fluxes["V_rho_x"] != 0.0 and f_psi != 0.0
+    assert fluxes["V_psi_x"] * drives["drho"] == pytest.approx(fluxes["V_rho_x"] * f_psi, rel=1.0e-12)
+
+
 def test_background_drive_values_and_units():
     # vA = 2, chi = 3, g = 4, K_p0 = 0.5, K_rho0 = 0.3, so alpha = 3/4 and K_b0 = 0.1.
     physics = {"vA": 2.0, "cs2_over_vA2": 3.0, "g": 4.0, "K_p0": 0.5, "K_rho0": 0.3}
     p = rmhd_by_nokia_rho.derived_parameters(physics)
     assert channels.background_drives(p) == pytest.approx({"drho": -0.05, "du_par": -0.1, "db_par": 0.2})
     assert channels.slaved_field_units(p) == pytest.approx({"drho": 1.0, "du_par": 2.0, "db_par": 0.75})
+    # F_u + (vS^2/vA^2) F_B = -0.1 + 0.75 * 0.2.
+    assert channels.psi_drive(p) == pytest.approx(0.05)
     # The density drive is written without dividing by g, so it exists when g = 0.
     p = rmhd_by_nokia_rho.derived_parameters({**physics, "g": 0.0})
     assert channels.background_drives(p)["drho"] == pytest.approx(-0.3)

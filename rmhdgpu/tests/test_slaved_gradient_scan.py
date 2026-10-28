@@ -195,7 +195,8 @@ def test_plot_draws_measured_and_slaved_log10_points_and_marks_omitted_points(
     # Also omit a zero-amplitude point with a nonzero drive.
     points.append({**points[0], "forcing": -1.0, "saturated_rms": 0.0, "slaved_rms": 0.0})
     captured = capture_panels(monkeypatch)
-    scan.plot_scan(points, FIELDS, tmp_path / "unused.png")
+    for name in FIELDS:
+        scan.plot_field(points, name, tmp_path / "unused.png")
     assert len(captured) == 3
     for panel, name in zip(captured, FIELDS):
         # The logarithm is taken of the data, so the axes themselves stay linear.
@@ -228,7 +229,8 @@ def test_regression_lines_recover_power_laws_and_appear_in_the_legend(
                         measured=0.5 * drives[-1]**0.8, kperp=2.0, alignment=0.5)
         points.extend(scan.read_run(run, ["drho", "db_par"]))
     captured = capture_panels(monkeypatch)
-    scan.plot_scan(points, ["drho", "db_par"], tmp_path / "unused.png")
+    for name in ["drho", "db_par"]:
+        scan.plot_field(points, name, tmp_path / "unused.png")
 
     density = captured[0]
     x = np.log10([min(drives), max(drives)])  # The lines span only the fitted drives.
@@ -290,7 +292,7 @@ def test_measured_and_slaved_fits_select_valid_points_independently(tmp_path, mo
         [(1.0, 1.0, 4.0), (2.0, 2.0, 2.0), (4.0, 4.0, 1.0), (8.0, 64.0, np.nan)]
     )]
     captured = capture_panels(monkeypatch)
-    scan.plot_scan(points, ["drho"], tmp_path / "unused.png")
+    scan.plot_field(points, "drho", tmp_path / "unused.png")
     panel = captured[0]
     measured_x = np.log10([1.0, 8.0])
     slaved_x = np.log10([1.0, 4.0])
@@ -305,13 +307,16 @@ def test_measured_and_slaved_fits_select_valid_points_independently(tmp_path, mo
                                scan.SLAVED_LABEL, "Slaved fit: slope -1.00"]
 
 
-def test_cli_defaults_to_all_fields_and_writes_png_and_simple_summary(tmp_path):
+def test_cli_defaults_to_all_fields_and_writes_one_png_per_field_and_simple_summary(tmp_path):
     runs = [write_run(tmp_path / f"run_{index}", physics={"K_rho0": value}, measured=value)
             for index, value in enumerate([2.0, 7.0, 10.5])]
     summary = tmp_path / "scan.csv"
-    output = scan.main([*[str(run) for run in runs], "--output", str(tmp_path / "scan.png"),
-                        "--summary-output", str(summary)])
-    assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    outputs = scan.main([*[str(run) for run in runs], "--output", str(tmp_path / "scan.png"),
+                         "--summary-output", str(summary)])
+    assert outputs == [tmp_path / f"scan_{name}.png" for name in FIELDS]
+    for output in outputs:
+        assert output.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert not (tmp_path / "scan.png").exists()  # Only the per-field figures are written.
     with summary.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         rows = list(reader)
@@ -330,7 +335,7 @@ def test_cli_accepts_absolute_globs_and_explicit_fields(tmp_path, monkeypatch):
     panels = []
 
     def capture(fig, *, output_path, show, plt):
-        panels.append(len(fig.axes))
+        panels.append((output_path.name, len(fig.axes)))
         plt.close(fig)
 
     monkeypatch.setattr(scan, "finalize_figure", capture)
@@ -339,7 +344,7 @@ def test_cli_accepts_absolute_globs_and_explicit_fields(tmp_path, monkeypatch):
                "--output", str(tmp_path / "selected.png"), "--summary-output", str(summary)])
     with summary.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
-    assert panels == [1]
+    assert panels == [("selected_drho.png", 1)]
     assert len(rows) == 2
     assert all(row["field"] == "drho" for row in rows)
 

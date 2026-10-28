@@ -4,7 +4,7 @@
 # gradients some of the injected z+ also leaks linearly into z- and the
 # compressive fields. Try a few tau_F values to see which holds the amplitude.
 title = "Nokia rho controlled forcing: target amplitude"
-output_dir = "outputs_test_forcing_with_g/ener_1.0_target_2.0_tau_1.0"
+output_dir = "forcing_with_g/KB0_0.1_Krho0_2.0/ener_1.0_target_2.0"
 
 [equations]
 type = "inhomogeneous_rmhd_rho"
@@ -16,7 +16,7 @@ Ny = 32
 Nz = 32
 
 [time]
-tmax = 100.0
+tmax = 200.0
 dt_init = 1.0e-3
 use_variable_dt = true
 cfl_number = 0.2
@@ -36,8 +36,8 @@ project_kpar0 = false
 [physics]
 vA = 1.0
 cs2_over_vA2 = 0.1
-K_rho0 = 3.0
-g = 0.06
+K_rho0 = 2.0
+g = 0.16
 K_p0 = 1.0
 
 [initial_condition]
@@ -81,36 +81,18 @@ target_scope = "branch_total"
 target_basis = "elsasser"
 target_quantity = "rms"
 target_value = 2.0
-tau_F = 1.0
-startup_energy_fraction = 0.01
-ring_floor_fraction = 0.01
+tau_F = 0.1
+startup_energy_fraction = 1.0
 
-[dissipation.psi]
-nu_perp = 1.0e-9
-nu_par = 0.0
+[dissipation]
+mode = "auto"
 n_perp = 3
-n_par = 1
-
-[dissipation.omega]
-nu_perp = 1.0e-9
+n_par = 3
 nu_par = 0.0
-n_perp = 3
-n_par = 1
-
-[dissipation.du_par]
-nu_perp = 1.0e-9
-nu_par = 0.0
-n_perp = 3
-n_par = 1
-
-[dissipation.db_par]
-nu_perp = 1.0e-9
-nu_par = 0.0
-n_perp = 3
-n_par = 1
-
-[dissipation.drho]
-nu_perp = 3.0e-3   
-nu_par = 0.0
-n_perp = 1
-n_par = 1
+kd_fraction = 0.8
+shell_half_width = 0.5
+update_every = 10
+smooth_factor = 0.2
+nu_min = 1.0e-8
+nu_max = 1.0
+max_update_factor = 2.0

@@ -22,6 +22,7 @@ examples/nokias_inhomo_s.input
 examples/controlled*
 examples/rho_Kp0_*
 examples/Kp0_forcing*
+examples/forcing_with_g*
 
 # Ignore generated files
 *.log

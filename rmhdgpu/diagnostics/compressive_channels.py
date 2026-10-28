@@ -72,6 +72,11 @@ CHANNEL_SCALAR_DIAGNOSTIC_INFO = {
         "Exact, so it includes the z- part: V_rho_x = <drho z+_x>/2 + <drho z-_x>/2. "
         "Defined for every g, unlike acr_g/g."
     ),
+    "V_psi_x": (
+        "x component of V_psi = <(delta B_par/B_0) delta u_perp> - <(delta u_par/vA) delta B_perp/B_0> "
+        "(paper Eq. 79), = <db_par u_x> - <du_par b_x>/vA; the closure predicts "
+        "V_psi_x ~ eta_turb (F_u + vS^2/vA^2 F_B) (Eq. 85). Defined for every K_b0, unlike -acr_B/(vA^2 K_b0)."
+    ),
     "q_dcf": (
         "DCF heating rate -(d_t W+)|_buoyancy = -(g/2) <drho z+_x>, instantaneous; "
         "positive while buoyancy drains z+."
@@ -368,6 +373,7 @@ def channel_scalar_diagnostics(
         # Only the x component is saved: every background gradient points
         # along x, so the closure predicts V_rho_y ~ 0 and V_rho_x ~ eta_turb F_rho.
         "V_rho_x": fluxes["V_rho_x"],
+        "V_psi_x": fluxes["V_psi_x"],
         "q_dcf": -fluxes["w_plus_buoyancy"],
         "q_ccr_source": -fluxes["w_minus_buoyancy"],
         "N_sq": float(p.N_sq),
@@ -403,6 +409,23 @@ def background_drives(p: Any) -> dict[str, float]:
         "du_par": -p.K_b0,
         "db_par": -p.K_b0 + p.K_p0 / p.gamma,
     }
+
+
+def psi_drive(p: Any) -> float:
+    """Return the drive of the V_psi flux, F_u + (vS^2/vA^2) F_B (paper Eq. 85).
+
+    The closure is V_psi ~ eta_turb (F_u + vS^2/vA^2 F_B), the counterpart of
+    V_rho ~ eta_turb F_rho. In the units of `slaved_field_units`, slaving
+    across a displacement xi_x gives du_par/vA = F_u xi_x and
+    (vA^2/vS^2) db_par = F_B xi_x. For z+, b_x = -u_x, so
+
+        V_psi_x = <db_par u_x> - <du_par b_x>/vA = (F_u + vS^2/vA^2 F_B) <xi_x u_x>
+
+    while V_rho_x = F_rho <xi_x u_x>, so both closures share eta_turb ~ <xi_x u_x>.
+    """
+
+    drives = background_drives(p)
+    return drives["du_par"] + p.alpha * drives["db_par"]  # alpha = vS^2/vA^2
 
 
 def slaved_field_units(p: Any) -> dict[str, float]:

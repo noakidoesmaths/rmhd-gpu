@@ -63,8 +63,8 @@ SCANS = {
 
 FIELDS = ("drho", "du_par", "db_par")
 
-# The fields whose drive each knob moves (see the table above), so each scan's figure only
-# shows panels that can have a slope. `test_slaved_gradient_scan.py` checks this against
+# The fields whose drive each knob moves (see the table above), so each scan only draws
+# figures that can have a slope. `test_slaved_gradient_scan.py` checks this against
 # `background_drives`.
 FIELDS_DRIVEN_BY = {"K_rho0": ("drho",), "K_p0": ("du_par", "db_par"), "g": FIELDS}
 
@@ -219,6 +219,7 @@ def plot_scan(parameter, run_dirs, scan_dir):
     if not run_dirs:
         print(f"No completed {parameter} runs to plot.")
         return None
+    # Base path: the plot script saves slaved_gradient_scan_<field>.png beside it.
     output = Path(scan_dir) / parameter / "slaved_gradient_scan.png"
     command = [
         sys.executable, str(PLOT_SCRIPT), *[str(path) for path in run_dirs],

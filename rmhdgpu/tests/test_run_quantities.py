@@ -27,6 +27,7 @@ def test_every_formula_on_one_row(tmp_path):
         "time": [0.0], "w_plus": [4.0], "w_minus": [1.0],
         "k_perp_plus": [2.0], "k_prl_plus": [0.5], "w_plus_align": [0.6],
         "drho_rms": [0.3], "du_par_rms": [0.4], "db_par_rms": [0.6], "V_rho_x": [-0.01],
+        "V_psi_x": [0.02], "acr_B": [9.0],
     }))
     assert run.z_plus[0] == pytest.approx(4.0)  # 2 sqrt(W+)
     assert run.z_minus[0] == pytest.approx(2.0)
@@ -34,7 +35,9 @@ def test_every_formula_on_one_row(tmp_path):
     assert run.chi_a[0] == pytest.approx(4.0 * 2.0 / (2.0 * 0.5))  # z+ k_perp / (vA k_prl)
     assert run.eta_turb[0] == pytest.approx(4.0 * 0.5 / 4)  # z+ l_perp / 4
     assert run.v_rho_x[0] == pytest.approx(-0.01)
+    assert run.v_psi_x[0] == pytest.approx(0.02)  # The column wins over -acr_B / (vA^2 K_b0).
     assert run.drives == pytest.approx({"drho": -0.05, "du_par": -0.1, "db_par": 0.2})
+    assert run.f_psi == pytest.approx(-0.1 + 0.75 * 0.2)  # F_u + (vS^2/vA^2) F_B
     # Eq. (47) units: du_par / vA and db_par / alpha.
     assert [run.measured[name][0] for name in rq.FIELDS] == pytest.approx([0.3, 0.2, 0.8])
     # Eq. (47): |F| l_perp alignment = |F| * 0.3.
@@ -53,12 +56,13 @@ def test_old_column_names_are_renamed(tmp_path):
     np.testing.assert_array_equal(columns["k_prl_minus"], [8, 9])
 
 
-def test_missing_columns_read_as_nan_and_acr_g_stands_in_for_v_rho(tmp_path):
+def test_missing_columns_read_as_nan_and_acr_columns_stand_in_for_the_fluxes(tmp_path):
     run = rq.load_run(write_run(tmp_path / "run", {
-        "time": [0, 1], "drho_rms": [1, 2], "acr_g": [0.4, -0.8],
+        "time": [0, 1], "drho_rms": [1, 2], "acr_g": [0.4, -0.8], "acr_B": [0.04, -0.08],
     }), ["drho"])
     assert set(run.measured) == {"drho"}
     np.testing.assert_allclose(run.v_rho_x, [0.1, -0.2])  # acr_g / g, with g = 4
+    np.testing.assert_allclose(run.v_psi_x, [-0.1, 0.2])  # -acr_B / (vA^2 K_b0), with vA^2 K_b0 = 0.4
     for curve in (run.z_plus, run.l_perp, run.chi_a, run.eta_turb, run.predicted["drho"]):
         assert np.isnan(curve).all()
 
@@ -67,6 +71,15 @@ def test_g_zero_has_no_flux_without_the_column(tmp_path):
     run = rq.load_run(write_run(tmp_path / "run", {"time": [0, 1], "drho_rms": [1, 2], "acr_g": [0, 0]},
                                 physics=PHYSICS.replace("g = 4.0", "g = 0.0")), ["drho"])
     assert np.isnan(run.v_rho_x).all()
+
+
+def test_k_b0_zero_has_no_psi_flux_without_the_column(tmp_path):
+    """With g = K_p0 = 0, K_b0 = 0, so acr_B is identically zero and so is F_psi."""
+    physics = PHYSICS.replace("g = 4.0", "g = 0.0").replace("K_p0 = 0.5", "K_p0 = 0.0")
+    run = rq.load_run(write_run(tmp_path / "run", {"time": [0, 1], "drho_rms": [1, 2], "acr_B": [0, 0]},
+                                physics=physics), ["drho"])
+    assert run.p.K_b0 == 0.0 and run.f_psi == 0.0
+    assert np.isnan(run.v_psi_x).all()
 
 
 def test_missing_files_and_columns_raise_value_errors(tmp_path):

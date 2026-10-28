@@ -20,19 +20,24 @@ Every scale is taken from z+:
     eta_turb  = z+_rms l_perp / 4                   1/2 from delta u_perp ~ z+/2, 1/2 from isotropy (Eq. 48)
     V_rho_x   = <(delta rho/rho_0) delta u_x>       saved column (Eq. 79)
     eta_meas  = V_rho_x / F_rho                     the measured diffusivity; NaN if F_rho = 0
+    V_psi_x   = <db_par u_x> - <du_par b_x>/vA      saved column (Eq. 79)
 
     Eq. (47): rms(f)          ~ |F_f| l_perp alignment        f = drho, du_par, db_par
     Eq. (73): z-_rms / z+_rms ~ l_perp |g| rms(drho) / z+_rms^2
     Eq. (80): V_rho_x         ~ eta_turb F_rho
+    Eq. (85): V_psi_x         ~ eta_turb F_psi,   F_psi = F_u + (vS^2/vA^2) F_B
 
 F_f is the background drive of each field (Eq. 46), a run constant built from
-the [physics] input by compressive_channels.background_drives.
+the [physics] input by compressive_channels.background_drives; F_psi comes from
+compressive_channels.psi_drive.
 
 Older CSVs: the k columns were called w_plus_kperp, w_minus_kperp, w_plus_kprl and
 w_minus_kprl before 2026-10-08, and the time column was once called t; both are
 renamed on reading. A column a CSV lacks reads as NaN, so whatever depends on it
 is NaN too and simply does not plot. Before V_rho_x existed it is taken from
 acr_g / g, the same correlator (acr_g = g <drho u_x>), which fails only for g = 0.
+Likewise V_psi_x (saved since 2026-10-28) is taken from -acr_B / (vA^2 K_b0),
+which fails only for K_b0 = 0.
 
 In Spyder:
     from vis.run_quantities import load_run, time_window
@@ -56,7 +61,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 import numpy as np
 
-from rmhdgpu.diagnostics.compressive_channels import background_drives, slaved_field_units
+from rmhdgpu.diagnostics.compressive_channels import background_drives, psi_drive, slaved_field_units
 from rmhdgpu.equations.rmhd_by_nokia_rho import derived_parameters
 
 
@@ -171,6 +176,8 @@ class Run:
     eta_turb: np.ndarray  # z+_rms l_perp / 4
     v_rho_x: np.ndarray  # <(drho/rho_0) delta u_x>
     eta_meas: np.ndarray  # V_rho_x / F_rho, the measured diffusivity
+    v_psi_x: np.ndarray  # <db_par u_x> - <du_par b_x>/vA
+    f_psi: float  # F_u + (vS^2/vA^2) F_B, the drive of V_psi (Eq. 85)
     drives: dict[str, float]  # F_f of each compressive field (Eq. 46)
     measured: dict[str, np.ndarray]  # rms of each requested field, in Eq. (47) units
     predicted: dict[str, np.ndarray]  # Eq. (47) estimate of each requested field
@@ -224,6 +231,12 @@ def load_run(run_dir, fields=FIELDS):
     f_rho = drives["drho"]
     eta_meas = v_rho_x / f_rho if f_rho != 0.0 else np.full_like(v_rho_x, np.nan)
 
+    # Eq. (79) for V_psi, whose closure is Eq. (85). acr_B = -vA^2 K_b0 V_psi_x.
+    if "V_psi_x" in columns or p.K_b0 == 0.0:
+        v_psi_x = column(columns, "V_psi_x")
+    else:
+        v_psi_x = -column(columns, "acr_B") / (p.vA**2 * p.K_b0)
+
     return Run(
         run_dir=run_dir,
         p=p,
@@ -241,6 +254,8 @@ def load_run(run_dir, fields=FIELDS):
         eta_turb=z_plus * l_perp / 4.0,
         v_rho_x=v_rho_x,
         eta_meas=eta_meas,
+        v_psi_x=v_psi_x,
+        f_psi=psi_drive(p),
         drives=drives,
         measured=measured,
         predicted=predicted,

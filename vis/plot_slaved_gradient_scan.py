@@ -19,9 +19,14 @@ ordinary least-squares line through its (log10|F|, log10 RMS) points, so the
 slope in the legend is the power-law exponent: 1 when the amplitude is
 proportional to its drive. A line needs at least two different drives.
 
+Each field is its own figure, saved next to the base --output path as
+slaved_gradient_scan_drho.png, _du_par.png and _db_par.png. --fields picks
+which of them to draw (and, with --show, to display). One summary CSV holds
+the points of every field drawn.
+
 Examples (also usable as main([...]) in Spyder):
     python vis/plot_slaved_gradient_scan.py RUN_1 RUN_2 RUN_3 --tmin 120
-    python vis/plot_slaved_gradient_scan.py "examples/outputs_*_rho" --fields drho
+    python vis/plot_slaved_gradient_scan.py "examples/outputs_*_rho" --fields drho --show
 """
 
 import argparse
@@ -119,48 +124,52 @@ def draw_series(ax, x, y, *, label, fit_label, marker_style, line_style):
     return fit
 
 
-def plot_scan(points, fields, output_path, *, show=False, parameter=None):
-    """Draw measured and slaved points, a regression line for each, and a legend."""
+def field_output_path(output, name):
+    """Image path of one field's figure: scan.png becomes scan_drho.png, and so on."""
+    output = Path(output)
+    return output.with_name(f"{output.stem}_{name}{output.suffix}")
+
+
+def plot_field(points, name, output_path, *, show=False, parameter=None):
+    """Draw one field's measured and slaved points, a regression line for each, and a legend."""
     plt = import_pyplot(show=show)
-    fig, axes = plt.subplots(1, len(fields), figsize=(5 * len(fields), 4.6),
-                             constrained_layout=True, squeeze=False)
-    for ax, name in zip(axes[0], fields):
-        title = TITLES[name]
-        field_points = [point for point in points if point["field"] == name]
-        x, y = log10_points(field_points, "saturated_rms")
-        x_slaved, y_slaved = log10_points(field_points, "slaved_rms")
-        if x.size or x_slaved.size:
-            # Measured: filled, solid line, field colour. Slaved: hollow, dashed, black,
-            # as in plot_slaved_projection.py.
-            fits = {
-                "measured": draw_series(
-                    ax, x, y, label=MEASURED_LABEL, fit_label="Measured fit",
-                    marker_style=dict(color=COLORS[name], s=45),
-                    line_style=dict(color=COLORS[name], ls="-")),
-                "slaved": draw_series(
-                    ax, x_slaved, y_slaved, label=SLAVED_LABEL, fit_label="Slaved fit",
-                    marker_style=dict(marker="s", s=45, facecolors="none", edgecolors="black"),
-                    line_style=dict(color="black", ls="--")),
-            }
-            for kind, fit in fits.items():
-                if fit is not None:
-                    print(f"{name} {kind} fit: slope {fit[0]:.3f}, intercept {fit[1]:.3f} "
-                          "(log10 units)")
-            if len(x) > 1 and np.ptp(x) == 0:
-                title += "\n(same drive in every run)"
-            ax.legend(fontsize=8)
-        else:
-            ax.text(0.5, 0.5, "No points with positive |F| and RMS", transform=ax.transAxes,
-                    ha="center", va="center", fontsize=9)
-            ax.set_xticks([])
-            ax.set_yticks([])
-        omitted = len(field_points) - len(x)
-        if omitted:
-            print(f"{name}: omitted {omitted} point(s) with zero drive or RMS (log undefined).")
-        ax.set(xlabel=rf"$\log_{{10}} |{DRIVE_LABELS[name]}|$",
-               ylabel=rf"$\log_{{10}}\langle\mathrm{{RMS}}({LABELS[name]})\rangle_t$",
-               title=title)
-        ax.grid(alpha=0.3)
+    fig, ax = plt.subplots(figsize=(5.5, 4.6), constrained_layout=True)
+    title = TITLES[name]
+    field_points = [point for point in points if point["field"] == name]
+    x, y = log10_points(field_points, "saturated_rms")
+    x_slaved, y_slaved = log10_points(field_points, "slaved_rms")
+    if x.size or x_slaved.size:
+        # Measured: filled, solid line, field colour. Slaved: hollow, dashed, black,
+        # as in plot_slaved_projection.py.
+        fits = {
+            "measured": draw_series(
+                ax, x, y, label=MEASURED_LABEL, fit_label="Measured fit",
+                marker_style=dict(color=COLORS[name], s=45),
+                line_style=dict(color=COLORS[name], ls="-")),
+            "slaved": draw_series(
+                ax, x_slaved, y_slaved, label=SLAVED_LABEL, fit_label="Slaved fit",
+                marker_style=dict(marker="s", s=45, facecolors="none", edgecolors="black"),
+                line_style=dict(color="black", ls="--")),
+        }
+        for kind, fit in fits.items():
+            if fit is not None:
+                print(f"{name} {kind} fit: slope {fit[0]:.3f}, intercept {fit[1]:.3f} "
+                      "(log10 units)")
+        if len(x) > 1 and np.ptp(x) == 0:
+            title += "\n(same drive in every run)"
+        ax.legend(fontsize=8)
+    else:
+        ax.text(0.5, 0.5, "No points with positive |F| and RMS", transform=ax.transAxes,
+                ha="center", va="center", fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    omitted = len(field_points) - len(x)
+    if omitted:
+        print(f"{name}: omitted {omitted} point(s) with zero drive or RMS (log undefined).")
+    ax.set(xlabel=rf"$\log_{{10}} |{DRIVE_LABELS[name]}|$",
+           ylabel=rf"$\log_{{10}}\langle\mathrm{{RMS}}({LABELS[name]})\rangle_t$",
+           title=title)
+    ax.grid(alpha=0.3)
 
     starts = [point["t_start"] for point in points]
     window = f"t >= {starts[0]:g}" if min(starts) == max(starts) else "window chosen per run"
@@ -177,15 +186,19 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("paths", nargs="+", help="Run directories; quoted wildcards are supported.")
-    parser.add_argument("--fields", nargs="+", choices=FIELDS, default=list(FIELDS))
+    parser.add_argument("--fields", nargs="+", choices=FIELDS, default=list(FIELDS),
+                        help="Which plots to draw, one figure per field; default all three.")
     parser.add_argument("--tmin", type=float, help="Start of the saturated averaging interval.")
     parser.add_argument("--tail-fraction", type=float, default=0.4,
                         help="Fraction of the time span to average; default 0.4.")
     parser.add_argument("--parameter", choices=("g", "K_p0", "K_rho0"),
                         help="Optional scanned-parameter label for the title.")
-    parser.add_argument("--output", type=Path, help="Image path; default slaved_gradient_scan.png.")
-    parser.add_argument("--summary-output", type=Path, help="CSV path; default alongside the image.")
-    parser.add_argument("--show", action="store_true", help="Display the saved figure.")
+    parser.add_argument("--output", type=Path,
+                        help="Base image path; default slaved_gradient_scan.png, saved as "
+                             "slaved_gradient_scan_drho.png and so on.")
+    parser.add_argument("--summary-output", type=Path,
+                        help="CSV path for all fields; default the base image path with .csv.")
+    parser.add_argument("--show", action="store_true", help="Display each saved figure.")
     args = parser.parse_args(argv)
 
     points = []
@@ -201,8 +214,11 @@ def main(argv=None):
     output_dir = parents.pop() if len(parents) == 1 else Path.cwd()
     output = args.output or output_dir / "slaved_gradient_scan.png"
     write_summary_csv(points, args.summary_output or output.with_suffix(".csv"))
-    plot_scan(points, args.fields, output, show=args.show, parameter=args.parameter)
-    return output
+    outputs = []
+    for name in args.fields:
+        outputs.append(field_output_path(output, name))
+        plot_field(points, name, outputs[-1], show=args.show, parameter=args.parameter)
+    return outputs
 
 
 if __name__ == "__main__":
