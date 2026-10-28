@@ -19,7 +19,8 @@ from rmhdgpu.workspace import Workspace
 
 @pytest.mark.parametrize("equation_name", ["alfvenic", "s09", "low_beta_stratified"])
 @pytest.mark.parametrize("power", [False, True])
-def test_both_standard_runners_and_signed_energy_work(tmp_path, monkeypatch, equation_name, power, production_backend):
+@pytest.mark.parametrize("extension", [None, "random_single", "random_multiple", "real_multiple"])
+def test_both_standard_runners_and_signed_energy_work(tmp_path, monkeypatch, equation_name, power, extension, production_backend):
     spec = (dict(control="constant_power", power_basis="elsasser", epsilon=.002) if power else
             dict(control="target", target_basis="elsasser", target_quantity="rms", target_value=.2,
                  target_scope="perpendicular_shell", startup_energy_fraction=.25, tau_F=.05))
@@ -31,6 +32,11 @@ def test_both_standard_runners_and_signed_energy_work(tmp_path, monkeypatch, equ
         forcing=dict(type="controlled_shell", use_forcing=True, forcing_seed=53,
             controlled_shell=dict(k_sigma_min=2., k_sigma_max=3., kz_index=1,
                 interval_max=3/1024, branches=["plus"], plus=spec)))
+    if extension is not None:
+        document["forcing"]["controlled_shell"].update(
+            phase_model="random_increment_phase" if extension.startswith("random") else "none",
+            kz_indices=[1] if extension == "random_single" else [1, 2, 3],
+            report_parallel_planes=True)
     path = tmp_path / "controlled.input"
     path.write_text(dump_toml(document))
     settings = resolve_run_settings(runfile_path=path)
@@ -49,6 +55,10 @@ def test_both_standard_runners_and_signed_energy_work(tmp_path, monkeypatch, equ
     assert len(events) == 3
     assert [event["interval"] for event in events] == [3/1024, 3/1024, 2/1024]
     assert events[-1]["time"] == settings.config.tmax
+    if extension is not None and extension.startswith("random"):
+        assert all(event["phase_direction_used"] == 1 for event in events)
+        for event in events:
+            assert event["phase_actual_work_f"] == pytest.approx(event["work_f"], abs=3e-14*event["shell_pre_f"])
     config = settings.config
     backend = build_backend(config)
     grid = build_grid(config, backend)

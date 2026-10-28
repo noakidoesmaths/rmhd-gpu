@@ -133,8 +133,8 @@ def vorticity_perpendicular_shell_energy(control, state: Any, branch: str) -> fl
     ix, iy = control.perpendicular_indices
     tile = max(1, control.grid.Nx*control.grid.Ny // (control.grid.Nz//2+1))
     energy = xp.zeros((), dtype=control.grid.real_dtype)
-    for start in range(0, control.mode_count, tile):
-        rows = slice(start, start+tile)
+    for start in range(0, control.perpendicular_mode_count, tile):
+        rows = slice(start, min(start+tile, control.perpendicular_mode_count))
         density = xp.abs(control.equation.forcing_branch_values(control, state, branch, (ix[rows], iy[rows], slice(None))))**2
         density *= control.weights[rows, None]/2
         density *= control.parallel_weights[None, :]

@@ -95,6 +95,10 @@ class ControlledShellSettings:
     k_sigma_max: float
     branches: list[str]
     kz_index: int = 1
+    # kz_index remains the reference for dimensional controller defaults.
+    # Optional actuator planes are ordered positive rFFT harmonics.
+    kz_indices: list[int] | None = None
+    report_parallel_planes: bool = False
     min_forced_modes: int = 8
     phase_model: str = "none"
     phase_angle_max: float = 0.5
@@ -119,10 +123,23 @@ class ControlledShellSettings:
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)) or value < 1:
                 raise ValueError(f"{name} must be a positive integer.")
             setattr(self, name, int(value))
+        if self.kz_indices is not None:
+            values = self.kz_indices
+            if (not isinstance(values, (list, tuple)) or not values
+                    or any(isinstance(n, (bool, np.bool_)) or not isinstance(n, (int, np.integer)) or n < 1 for n in values)):
+                raise ValueError("kz_indices must be a nonempty list of positive integers.")
+            self.kz_indices = [int(n) for n in values]
+            # The reference sets controller defaults and initial chi; it need not
+            # be actuated. For example, reference=1 with kz_indices=[5] keeps
+            # the fundamental normalization while seeding/forcing harmonic 5.
+            if self.kz_indices != sorted(set(self.kz_indices)):
+                raise ValueError("kz_indices must be sorted and unique.")
+        if not isinstance(self.report_parallel_planes, bool):
+            raise ValueError("report_parallel_planes must be bool.")
         if self.min_forced_modes < 8:
             raise ValueError("min_forced_modes must be at least eight.")
-        if self.phase_model not in {"none", "fixed_gain_angle"}:
-            raise ValueError("phase_model must be 'none' or 'fixed_gain_angle'.")
+        if self.phase_model not in {"none", "fixed_gain_angle", "random_increment_phase"}:
+            raise ValueError("Unknown controlled-forcing phase_model.")
         self.phase_angle_max = _positive("phase_angle_max", self.phase_angle_max, allow_zero=True)
         if self.phase_angle_max > 0.5:
             raise ValueError("phase_angle_max must be <= 0.5 radians.")
@@ -143,6 +160,11 @@ class ControlledShellSettings:
                     raise ValueError(f"Invalid controlled {branch} settings: {exc}") from exc
             elif value is not None and not isinstance(value, ControlledBranchSettings):
                 raise ValueError(f"controlled {branch} settings must be a table.")
+
+
+def actuator_harmonics(settings: ControlledShellSettings) -> tuple[int, ...]:
+    """Reference/default frequency is independent of the last actuator plane."""
+    return tuple(settings.kz_indices) if settings.kz_indices is not None else (settings.kz_index,)
 
 
 def settings_document(settings: ControlledShellSettings) -> dict[str, Any]:
@@ -243,8 +265,9 @@ def shell_geometry(config: Any, settings: ControlledShellSettings, *, sigma: flo
     for name in ("Lx", "Ly", "Lz"):
         _positive(name, getattr(config, name))
     _positive("sigma", sigma)
-    if not 1 <= settings.kz_index < config.Nz // 2:
-        raise ValueError("kz_index must exclude the zero and Nyquist planes: 1 <= kz_index < Nz/2.")
+    harmonics = actuator_harmonics(settings)
+    if any(not 1 <= n < config.Nz // 2 for n in harmonics):
+        raise ValueError("kz_index/kz_indices must exclude the zero and Nyquist planes: 1 <= kz < Nz/2.")
     nx = np.rint(np.fft.fftfreq(config.Nx) * config.Nx).astype(int)
     ny = np.rint(np.fft.fftfreq(config.Ny) * config.Ny).astype(int)
     kx, ky = nx * (2*np.pi/config.Lx), ny * (2*np.pi/config.Ly)
@@ -255,7 +278,7 @@ def shell_geometry(config: Any, settings: ControlledShellSettings, *, sigma: flo
         raise ValueError("Requested metric shell extends beyond represented Fourier modes.")
     ix, iy = np.nonzero((ks >= settings.k_sigma_min) & (ks <= settings.k_sigma_max))
     if config.dealias and (np.any(abs(nx[ix]) >= config.Nx/3) or np.any(abs(ny[iy]) >= config.Ny/3)
-                           or settings.kz_index >= config.Nz/3):
+                           or max(harmonics) >= config.Nz/3):
         raise ValueError("Requested forcing shell/kz is clipped by the dealias mask.")
     if len(ix) < settings.min_forced_modes:
         raise ValueError(f"Forcing shell has {len(ix)} modes; requires at least {settings.min_forced_modes}.")
@@ -280,6 +303,8 @@ class ForcingState:
     low_mask: Any = field(init=False)
     templates: dict = field(init=False)
     angles: dict = field(init=False)
+    phase_rng: dict = field(init=False, repr=False)
+    phase_history: dict = field(init=False, repr=False)
     mode_rows: list = field(init=False)
     mode_count: int = field(init=False)
     normalization: float = field(init=False)
@@ -296,6 +321,8 @@ class ForcingState:
     perpendicular_indices: Any = field(init=False, repr=False)
     measurement_mask: Any = field(init=False, repr=False)
     parallel_weights: Any = field(init=False, repr=False)
+    kz_indices: tuple = field(init=False)
+    perpendicular_mode_count: int = field(init=False)
 
 
 def create_control(config, grid, backend, equation, dealias_mask=None):
@@ -326,23 +353,31 @@ def configure(control, config: Any, grid: Any, backend: Any, dealias_mask: Any |
         warnings.warn("|G_minus| < 0.1: Elsasser conversion is ill conditioned. G_plus >= 2 cannot trigger this warning.",
                       RuntimeWarning, stacklevel=2)
     nx, ny, kx, ky, delta, ks, ix, iy = shell_geometry(config, s, sigma=control.equation.forcing_metric(config))
-    if dealias_mask is not None and not np.all(backend.to_numpy(dealias_mask[ix, iy, s.kz_index])):
+    control.kz_indices = actuator_harmonics(s)
+    control.perpendicular_mode_count = len(ix)
+    # Keep unique transverse indices for the all-kz band measurement. Tiling
+    # them for actuation must never multiply its measured energy by n_planes.
+    band_ix, band_iy = ix, iy
+    iz = np.repeat(control.kz_indices, len(ix))
+    ix, iy = np.tile(ix, len(control.kz_indices)), np.tile(iy, len(control.kz_indices))
+    if dealias_mask is not None and not np.all(backend.to_numpy(dealias_mask[ix, iy, iz])):
         raise ValueError("Requested forcing shell/kz is clipped by the dealias mask.")
     control.mode_count = len(ix)
-    control.indices = backend.asarray(np.ravel_multi_index((ix, iy, np.full(len(ix), s.kz_index)), grid.fourier_shape))
+    control.indices = backend.asarray(np.ravel_multi_index((ix, iy, iz), grid.fourier_shape))
     control.k_sigma = backend.asarray(ks[ix, iy], dtype=grid.real_dtype)
     control.normalization = float((grid.Nx * grid.Ny * grid.Nz)**2)
     # Interior rFFT modes have w=2. Keep it explicit in both template and energy.
     control.weights = backend.asarray(2.0/(4*delta[ix, iy]*control.normalization), dtype=grid.real_dtype)
     control.inv_delta = backend.asarray(np.divide(1.0, delta, out=np.zeros_like(delta), where=delta>0), dtype=grid.real_dtype)
     control.low_mask = backend.asarray((ks > 0) & (ks < s.k_sigma_min))
-    if any(getattr(s, b).target_scope == "perpendicular_shell" for b in s.branches):
-        control.perpendicular_indices = (backend.asarray(ix), backend.asarray(iy))
+    if s.report_parallel_planes or any(getattr(s, b).target_scope == "perpendicular_shell" for b in s.branches):
+        control.perpendicular_indices = (backend.asarray(band_ix), backend.asarray(band_iy))
         control.measurement_mask = dealias_mask
         parallel_weights = np.full(grid.Nz//2+1, 2., dtype=grid.real_dtype)
         parallel_weights[[0, -1]] = 1.
         control.parallel_weights = backend.asarray(parallel_weights)
     control.templates, control.angles = {}, {}
+    control.phase_rng, control.phase_history = {}, {}
     control.mode_rows = []
     # Independent seed streams keep templates identical when the phase model changes.
     seed = np.random.SeedSequence(config.forcing_seed)
@@ -358,12 +393,15 @@ def configure(control, config: Any, grid: Any, backend: Any, dealias_mask: Any |
             energy_weights = 2*abs(template)**2/delta[ix, iy]
             phi -= np.average(phi, weights=energy_weights)
             phi *= s.phase_angle_max / max(abs(phi))
+        if s.phase_model == "random_increment_phase":
+            from rmhdgpu.forcing_increment import configure as configure_increment
+            configure_increment(control, b, streams[index+2])
         control.templates[b] = backend.asarray(template, dtype=grid.complex_dtype)
         control.angles[b] = backend.asarray(phi, dtype=grid.real_dtype)
-        for j, (i_x, i_y) in enumerate(zip(ix, iy, strict=True)):
-            control.mode_rows.append({"branch": b, "flat_index": int(np.ravel_multi_index((i_x, i_y, s.kz_index), grid.fourier_shape)),
-                                  "nx": int(nx[i_x]), "ny": int(ny[i_y]), "nz": s.kz_index,
-                                  "kx": float(kx[i_x]), "ky": float(ky[i_y]), "kz": 2*np.pi*s.kz_index/grid.Lz,
+        for j, (i_x, i_y, i_z) in enumerate(zip(ix, iy, iz, strict=True)):
+            control.mode_rows.append({"branch": b, "flat_index": int(np.ravel_multi_index((i_x, i_y, i_z), grid.fourier_shape)),
+                                  "nx": int(nx[i_x]), "ny": int(ny[i_y]), "nz": int(i_z),
+                                  "kx": float(kx[i_x]), "ky": float(ky[i_y]), "kz": 2*np.pi*i_z/grid.Lz,
                                   "k_sigma": float(ks[i_x, i_y]), "k_delta": float(delta[i_x, i_y]),
                                   "rfft_weight": 2.0, "template_energy_weight": 1/len(ix), "phase_angle": float(phi[j])})
     frequency = 2*np.pi*s.kz_index/grid.Lz*config.vA
@@ -440,7 +478,7 @@ def advance(control, state: Any, dt: float, time: float, *, final: bool = False)
     max_gamma = 0.0
     report_nonzero = any(getattr(control.settings, b).target_scope == "branch_nonzero_kz"
                          for b in control.settings.branches)
-    report_perpendicular = any(getattr(control.settings, b).target_scope == "perpendicular_shell"
+    report_perpendicular = control.settings.report_parallel_planes or any(getattr(control.settings, b).target_scope == "perpendicular_shell"
                                for b in control.settings.branches)
     for b in control.settings.branches:
         density = shell_density(control, state, b)
@@ -449,9 +487,18 @@ def advance(control, state: Any, dt: float, time: float, *, final: bool = False)
         total = control.backend.scalar_to_float(control.backend.xp.sum(energy_density))
         event = control_event_map(getattr(control.settings, b), control.native[b], shell, total, h,
                                   nonzero_kz=nonzero, perpendicular_shell=perpendicular)
-        factor = control.backend.xp.exp(event["log_gain"]*(1-1j*control.backend.xp.tan(control.angles[b])))
-        before = control.equation.forcing_branch_values(control, state, b, control.indices).copy() if control.diagnostic_hook is not None else None
-        control.equation.forcing_apply_gain(control, state, b, factor)
+        if control.settings.report_parallel_planes and perpendicular is None:
+            # Reporting cannot change which energy the controller measures.
+            perpendicular = perpendicular_shell_energy(control, state, b)
+        if control.settings.phase_model == "random_increment_phase":
+            from rmhdgpu.forcing_increment import apply as apply_increment
+            before = control.equation.forcing_branch_values(control, state, b, control.indices).copy()
+            event.update(apply_increment(control, state, b, event, before))
+        else:
+            # Preserve the original models' arithmetic and reduction paths.
+            factor = control.backend.xp.exp(event["log_gain"]*(1-1j*control.backend.xp.tan(control.angles[b])))
+            before = control.equation.forcing_branch_values(control, state, b, control.indices).copy() if control.diagnostic_hook is not None else None
+            control.equation.forcing_apply_gain(control, state, b, factor)
         if control.diagnostic_hook is not None:
             opposite = "minus" if b == "plus" else "plus"
             event.update(control.diagnostic_hook(branch=b, indices=control.indices, before=before,
@@ -533,10 +580,15 @@ def diagnostics(control, state: Any) -> dict[str, float | int]:
             result[prefix+"nonzero_kz_energy_f"] = nonzero
             result[prefix+"nonzero_kz_energy_z"] = nonzero/control.g2[b]
             result[prefix+"nonzero_kz_rms_z"] = 2*math.sqrt(nonzero/control.g2[b])
+        if control.settings.report_parallel_planes and perpendicular is None:
+            perpendicular = perpendicular_shell_energy(control, state, b)
         if perpendicular is not None:
             result[prefix+"perpendicular_shell_energy_f"] = perpendicular
             result[prefix+"perpendicular_shell_energy_z"] = perpendicular/control.g2[b]
             result[prefix+"perpendicular_shell_rms_z"] = 2*math.sqrt(perpendicular/control.g2[b])
+        if control.settings.report_parallel_planes:
+            from rmhdgpu.forcing_planes import diagnostics as plane_diagnostics
+            result.update(plane_diagnostics(control, state, b))
         result[prefix+"cumulative_work_f"] = control.cumulative_work.get(b, 0.0)
         result[prefix+"cumulative_work_z"] = control.cumulative_work.get(b, 0.0)/control.g2[b]
         result[prefix+"startup_work_f"] = control.startup_work.get(b, 0.0)
@@ -589,7 +641,7 @@ def write_metadata(control, output_dir: str | Path) -> None:
                 "target_scope_definitions": {
                     "branch_total": "All modes of the controlled branch, including kz=0 (default).",
                     "branch_nonzero_kz": "All kz!=0 modes of the controlled branch; kz=0 still evolves and is included in total diagnostics.",
-                    "shell": "Only the sparse forced shell at the selected nonzero parallel harmonic.",
+                    "shell": "Only the sparse forced shell over the union of selected nonzero parallel harmonics.",
                     "perpendicular_shell": "The same perpendicular metric band as the actuator, summed over every retained kz including kz=0. With no dealias mask, all allocated kz are included.",
                     "actuation": "Every scope changes only the same forced shell; broader measurement scopes retain the shell floor."},
                 "nonlinear_time_estimate": {
@@ -599,6 +651,12 @@ def write_metadata(control, output_dir: str | Path) -> None:
                                          ("minus" if b == "plus" else "plus") for b in ("plus", "minus")},
                     "interpretation": "driving-scale proxy, not a measured decorrelation time; alignment omitted",
                     "empty_branches": "an empty opposite branch gives infinite tau_nl; an empty reference shell gives NaN"}}
+    if control.settings.phase_model == "random_increment_phase":
+        from rmhdgpu.forcing_increment import metadata as increment_metadata
+        metadata["random_increment_phase"] = increment_metadata()
+    if control.settings.kz_indices is not None or control.settings.report_parallel_planes:
+        from rmhdgpu.forcing_planes import metadata as plane_metadata
+        metadata["parallel_actuator"] = plane_metadata(control)
     (output/"forcing_metadata.json").write_text(json.dumps(metadata, indent=2)+"\n", encoding="utf8")
 
 
@@ -608,10 +666,17 @@ HISTORY_FIELDS = ("initialized", "elapsed", "interval_target", "interval_max", "
 
 def forcing_history(control):
     """JSON-compatible continuation history; templates/angles remain arrays."""
-    return {key: getattr(control, key) for key in HISTORY_FIELDS}
+    saved = {key: getattr(control, key) for key in HISTORY_FIELDS}
+    if control.settings.phase_model == "random_increment_phase":
+        from rmhdgpu.forcing_increment import history as increment_history
+        saved.update(increment_history(control))
+    return saved
 
 
 def restore_forcing_history(control, history):
     """Restore an already validated continuation without another startup kick."""
+    if control.settings.phase_model == "random_increment_phase":
+        from rmhdgpu.forcing_increment import restore as restore_increment
+        restore_increment(control, history)
     for key in HISTORY_FIELDS:
         setattr(control, key, history[key])

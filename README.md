@@ -329,12 +329,18 @@ reinterpreted as powers; historical stochastic runs require their pinned source.
 
 #### Controlled shell forcing
 
+<<<<<<< HEAD
 Controlled forcing rescales one branch in a perpendicular Fourier band at a
 selected nonzero parallel harmonic. It supports the `alfvenic`, `s09`,
 `low_beta_stratified`, `inhomogeneous_rmhd_rho`, and `inhomogeneous_rmhd_s`
 equations. With nonzero background gradients in the inhomogeneous sets, z± are
 not linear eigenmodes, so energy put into one branch also leaks linearly into
 the other branch and the compressive fields. A plus-only control changes `phi - psi` while
+=======
+Controlled forcing acts on a branch in a perpendicular Fourier band at selected
+nonzero parallel harmonics (one by default). It supports the `alfvenic`, `s09`, and
+`low_beta_stratified` equations. A plus-only control changes `phi - psi` while
+>>>>>>> upstream/main
 preserving `phi + psi` to roundoff, including an already nonzero minus branch.
 
 For example, control the physical plus RMS towards 0.2:
@@ -362,7 +368,7 @@ tau_F = 1.0
 
 The target is a relaxation reference, not an exact amplitude constraint.
 `perpendicular_shell` measures the band across all retained parallel modes;
-only the selected parallel harmonic receives forcing. Use `branch_total`,
+only the selected parallel harmonics receive forcing. Use `branch_total`,
 `branch_nonzero_kz`, or `shell` for the other measurement scopes.
 
 Controlled branch energy is `mean(|z±|²)/4`, half the existing stochastic
@@ -376,6 +382,51 @@ python -m rmhdgpu.run examples/controlled_target_s09.input
 python -m rmhdgpu.run examples/controlled_power_alfvenic.input
 python -m rmhdgpu.run examples/controlled_target_nokia_rho.input
 ```
+
+Two optional controls can be added to the existing `[forcing.controlled_shell]`
+table. All existing defaults are unchanged: `phase_model = "none"`, a single
+actuator at `kz_index = 1`, and no per-plane reporting.
+
+```toml
+[forcing.controlled_shell]
+# Retain the existing shell bounds, branches and branch target tables.
+phase_model = "random_increment_phase"
+kz_indices = [1, 2, 3, 4, 5]  # Optional; omitting it uses [kz_index].
+report_parallel_planes = true  # Optional diagnostic output; default false.
+```
+
+`random_increment_phase` applies full-circle random phases to an **added
+increment** on positive-gain events. One signed amplitude solves the requested
+shell-energy change including the cross term with the existing field. Individual
+modes can lose energy even when the shell total gains energy. Negative gains use
+the original real damping; zero gain leaves the fields unchanged. The existing
+`none` and `fixed_gain_angle` update arithmetic is preserved. `phase_angle_max`
+only controls `fixed_gain_angle`; random-increment phases always span the full
+circle. The global energy-control sign means the final applied increments are
+not unconditioned independent uniform phases.
+
+The seed determines independent startup and phase streams. Every actual forcing
+event consumes one phase draw per mode, including damping and zero-gain events;
+pending intervals consume none. Event CSVs record draw hashes, phase statistics,
+and actual linear/quadratic work. The existing `forcing_history` and
+`restore_forcing_history` APIs serialize the RNG and phase history as well as the
+pending interval. Restoring these requires the same configuration and saved
+fields; this does not add a whole-simulation restart facility.
+
+`kz_indices` must be sorted, unique positive integers below the Nyquist plane and
+inside the dealias mask. They share **one branch target or power**, not a full
+target per plane. Startup template energy is divided equally across planes.
+For positive random increments, each plane has equal direction energy before
+the single aggregate work solve; actual injected work can differ by plane.
+Perpendicular-shell feedback still counts every transverse mode and retained
+parallel plane only once. Positive rFFT harmonics include their negative
+conjugates through the usual factor of two.
+
+`kz_index` remains the reference for the controller's default timescale/rate
+settings. For example, `kz_index = 1, kz_indices = [5]` forces only harmonic 5
+without changing those reference defaults. `report_parallel_planes` adds
+zero-plane/actuator-plane energies and, for random increments, per-plane work;
+it does not change amplitude feedback or the forced modes.
 
 ### Dissipation
 
