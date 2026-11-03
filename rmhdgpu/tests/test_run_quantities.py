@@ -33,7 +33,7 @@ def test_every_formula_on_one_row(tmp_path):
     assert run.z_minus[0] == pytest.approx(2.0)
     assert run.l_perp[0] == pytest.approx(0.5)  # 1 / k_perp_plus
     assert run.chi_a[0] == pytest.approx(4.0 * 2.0 / (2.0 * 0.5))  # z+ k_perp / (vA k_prl)
-    assert run.eta_turb[0] == pytest.approx(4.0 * 0.5 / 4)  # z+ l_perp / 4
+    assert run.eta_turb[0] == pytest.approx(0.5 * 2.4**2 / (2 * 4.0))  # l_perp z+_x^2 / (2 z+)
     assert run.v_rho_x[0] == pytest.approx(-0.01)
     assert run.v_psi_x[0] == pytest.approx(0.02)  # The column wins over -acr_B / (vA^2 K_b0).
     assert run.drives == pytest.approx({"drho": -0.05, "du_par": -0.1, "db_par": 0.2})
@@ -45,6 +45,33 @@ def test_every_formula_on_one_row(tmp_path):
     assert run.z_ratio[0] == pytest.approx(0.5)
     # Eq. (73): l_perp |g| rms(drho) / z+^2 = 0.5 * 4 * 0.3 / 16.
     assert run.z_ratio_predicted[0] == pytest.approx(0.0375)
+    # Eq. (69): -g F_rho eta_turb = -4 * (-0.05) * 0.36; no q_dcf column to compare.
+    assert run.q_dcf_predicted[0] == pytest.approx(0.072)
+    assert np.isnan(run.q_dcf[0])
+    # No w_plus_rhs_dissipation column, so the measured CCR heating is missing.
+    assert np.isnan(run.q_ccr[0])
+    # Eq. (75) with the slaved z-: |g F_rho| l_perp z+_x / 4 = 0.2 * 0.5 * 2.4 / 4.
+    assert run.q_ccr_predicted[0] == pytest.approx(0.06)
+    # Eq. (75) with the measured z-: W+ z-_rms / l_perp = 4 * 2 * 2.
+    assert run.q_ccr_from_z_minus[0] == pytest.approx(16.0)
+    # z+_x = alignment z+ = 2.4; eta_turb = l_perp z+_x^2 / (2 z+) = 0.5 * 5.76 / 8 = 0.36.
+    assert run.z_plus_x[0] == pytest.approx(2.4)
+    assert run.alignment[0] == pytest.approx(0.6)
+    # Eqs. (80) and (85): eta_turb F_rho and eta_turb F_psi, with F_psi = 0.05.
+    assert run.v_rho_x_predicted[0] == pytest.approx(0.36 * -0.05)
+    assert run.v_psi_x_predicted[0] == pytest.approx(0.36 * 0.05)
+
+
+def test_measured_ccr_heating_is_the_w_plus_dissipation_with_the_heating_sign(tmp_path):
+    run = rq.load_run(write_run(tmp_path / "run", {
+        "time": [0.0, 1.0], "w_plus": [1.0, 1.0], "w_minus": [0.04, 0.09],
+        "k_perp_plus": [3.0, 3.0], "w_plus_align": [0.5, 0.5], "w_plus_rhs_dissipation": [-0.25, -0.5],
+        "q_ccr_source": [7.0, 7.0],  # The W- buoyancy source; it must not be read as Q_CCR.
+    }), fields=())
+    np.testing.assert_allclose(run.q_ccr, [0.25, 0.5])
+    # Slaved z-: |g F_rho| l_perp z+_x / 4 = 0.2 * (1/3) * 1 / 4, the same in both rows.
+    np.testing.assert_allclose(run.q_ccr_predicted, [1 / 60, 1 / 60])
+    np.testing.assert_allclose(run.q_ccr_from_z_minus, [1.0 * 0.4 * 3.0, 1.0 * 0.6 * 3.0])
 
 
 def test_old_column_names_are_renamed(tmp_path):

@@ -63,8 +63,9 @@ def test_drift_of_constant_and_ramp():
 
 def test_series_recover_the_closure_ratio(tmp_path):
     ratio = [0.1, 0.2, 0.3, 0.4]
-    series = convergence.load_series(write_run(tmp_path / "run", run_columns(ratio)))
+    _, series = convergence.load_series(write_run(tmp_path / "run", run_columns(ratio)))
     np.testing.assert_allclose(series["ratio"], ratio)
+    np.testing.assert_allclose(series["closure"], 0.125)  # z+_x^2 / (2 z+^2) with z+_x/z+ = 0.5
     np.testing.assert_allclose(series["z_ratio"], 0.5)
     np.testing.assert_allclose(series["chi_a"], 4.0)
     assert series["nu"] is None  # No auto-dissipation column.

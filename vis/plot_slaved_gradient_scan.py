@@ -30,7 +30,6 @@ Examples (also usable as main([...]) in Spyder):
 """
 
 import argparse
-import csv
 from pathlib import Path
 import sys
 
@@ -40,8 +39,10 @@ if __package__ in {None, ""}:
 import numpy as np
 
 from vis._matplotlib import finalize_figure, import_pyplot
-from vis.plot_slaved_projection import COLORS, LABELS
-from vis.run_quantities import FIELDS, load_run, resolve_run_dirs, time_window
+from vis.run_quantities import (
+    FIELD_COLORS as COLORS, FIELD_LABELS as LABELS, FIELDS, default_output_dir, load_run, resolve_run_dirs,
+    run_window, write_summary_csv,
+)
 
 
 TITLES = {"drho": "Density", "du_par": "Parallel velocity", "db_par": "Parallel magnetic field"}
@@ -53,10 +54,7 @@ SLAVED_LABEL = "Slaved estimate (Eq. 47)"
 def read_run(run_dir, fields, *, tmin=None, tail_fraction=0.4):
     """Return each field's drive, mean normalized RMS and mean slaved estimate in one window."""
     run = load_run(run_dir, fields)
-    try:
-        window = time_window(run.times, tmin=tmin, tail_fraction=tail_fraction)
-    except ValueError as error:
-        raise ValueError(f"{run.run_dir.name}: {error}") from None
+    window = run_window(run, tmin=tmin, tail_fraction=tail_fraction)
 
     points = []
     for name in fields:
@@ -80,17 +78,6 @@ def read_run(run_dir, fields, *, tmin=None, tail_fraction=0.4):
             "n_samples": int(window.sum()),
         })
     return points
-
-
-def write_summary_csv(points, path):
-    """Save the plotted amplitudes and averaging windows for reference."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(points[0]))
-        writer.writeheader()
-        writer.writerows(points)
-    print(f"Saved {path}")
 
 
 def log10_points(field_points, key):
@@ -210,9 +197,7 @@ def main(argv=None):
     except (OSError, ValueError) as error:
         parser.error(str(error))
 
-    parents = {path.parent for path in run_dirs}
-    output_dir = parents.pop() if len(parents) == 1 else Path.cwd()
-    output = args.output or output_dir / "slaved_gradient_scan.png"
+    output = args.output or default_output_dir(run_dirs) / "slaved_gradient_scan.png"
     write_summary_csv(points, args.summary_output or output.with_suffix(".csv"))
     outputs = []
     for name in args.fields:

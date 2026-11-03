@@ -2,7 +2,7 @@
 
 vis/plot_flux_closure.py turns each run into one point: the window mean of
 
-    V_rho_x / (F_rho z+_rms l_perp)        closure: 1/4 (Squire et al., arXiv:2607.08036, Eq. 80)
+    V_rho_x / (F_rho z+_rms l_perp)        estimate: z+_x^2 / (2 z+_rms^2) (Squire et al., Eq. 80)
 
 This script plots that same ratio against time, so you can see whether the
 window it is averaged over is statistically steady. Run it on the same runs
@@ -13,7 +13,8 @@ velocity, so it carries no flux.
 
 The figure is 2x2, against time, one colour per run:
 
-    V_rho_x/(F_rho z+ l_perp)   thin line: every saved time; markers: block means
+    V_rho_x/(F_rho z+ l_perp)   thin line: every saved time; markers: block means;
+                                dashed: the run's estimate z+_x^2/(2 z+^2) (1/4 if isotropic)
     z-_rms/z+_rms               in RMHD z+ is only distorted by z-, so z- sets how
                                 fast the flow decorrelates and V_rho depends on it
     chi_A                       the x-axis of the closure plot
@@ -48,9 +49,11 @@ if __package__ in {None, ""}:
 import numpy as np
 
 from vis._matplotlib import finalize_figure, import_pyplot
-from vis.plot_flux_closure import FLUX_CLOSURE, describe_window
-from vis.plot_slaved_gradient_scan import write_summary_csv
-from vis.run_quantities import load_run, resolve_run_dirs, time_window
+from vis.plot_flux_closure import ISOTROPIC_CLOSURE, flux_ratio
+from vis.run_quantities import (
+    default_output_dir, describe_window, load_run, resolve_run_dirs, run_window, safe_divide,
+    write_summary_csv,
+)
 
 
 def block_means(times, values, n_blocks):
@@ -84,15 +87,15 @@ def drift(times, values):
 
 
 def load_series(run_dir):
-    """Time series of the closure ratio, z-/z+, chi_A and auto nu_perp for one run."""
+    """The run, and time series of the closure ratio, its estimate, z-/z+, chi_A and auto nu_perp."""
     run = load_run(run_dir, ["drho"])
-    with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = run.eta_meas / (run.z_plus * run.l_perp)  # eta_meas = V_rho_x / F_rho
     nu = run.columns.get("auto_dissipation_nu_perp")
     if nu is not None and not np.any(nu > 0.0):
         nu = None  # Auto dissipation was off: the column is saved as zeros.
-    return {"name": run.run_dir.name, "time": run.times, "ratio": ratio,
-            "z_ratio": run.z_ratio, "chi_a": run.chi_a, "nu": nu}
+    return run, {"name": run.run_dir.name, "time": run.times,
+                 "ratio": flux_ratio(run.v_rho_x, run.drives["drho"], run),
+                 "closure": safe_divide(run.eta_turb, run.z_plus * run.l_perp),
+                 "z_ratio": run.z_ratio, "chi_a": run.chi_a, "nu": nu}
 
 
 def summarize(series, window):
@@ -104,6 +107,7 @@ def summarize(series, window):
         "t_start": float(t[0]),
         "t_end": float(t[-1]),
         "V_over_F_z_l": float(np.nanmean(series["ratio"][window])),
+        "closure": float(np.nanmean(series["closure"][window])),
         "drift": float(drift(t, series["ratio"][window])),
         "z_minus_over_z_plus": float(np.nanmean(series["z_ratio"][window])),
         "chi_A": float(np.nanmean(series["chi_a"][window])),
@@ -112,10 +116,11 @@ def summarize(series, window):
 
 
 def print_table(points):
-    print(f"{'run':<32} {'window':>14} {'V/(F z+ l)':>10} {'drift':>7} {'z-/z+':>6} {'chi_A':>6} {'auto nu':>9}")
+    print(f"{'run':<32} {'window':>14} {'V/(F z+ l)':>10} {'estimate':>8} {'drift':>7} {'z-/z+':>6} "
+          f"{'chi_A':>6} {'auto nu':>9}")
     for pt in points:
         window = f"{pt['t_start']:.4g}-{pt['t_end']:.4g}"
-        print(f"{pt['run']:<32} {window:>14} {pt['V_over_F_z_l']:>10.3g} {pt['drift']:>+7.2f} "
+        print(f"{pt['run']:<32} {window:>14} {pt['V_over_F_z_l']:>10.3g} {pt['closure']:>8.3g} {pt['drift']:>+7.2f} "
               f"{pt['z_minus_over_z_plus']:>6.3g} {pt['chi_A']:>6.3g} {pt['auto_nu_perp']:>9.3g}")
 
 
@@ -130,6 +135,7 @@ def plot_convergence(all_series, points, output_path, *, n_blocks, window_text, 
         ax_ratio.plot(t, series["ratio"], color=color, lw=0.5, alpha=0.3)
         centres, means = block_means(t, series["ratio"], n_blocks)
         ax_ratio.plot(centres, means, color=color, marker="o", ms=4, lw=1.5, label=series["name"])
+        ax_ratio.plot(t, series["closure"], color=color, ls="--", lw=1.2)
         ax_z.plot(t, series["z_ratio"], color=color, lw=1.2)
         ax_chi.plot(t, series["chi_a"], color=color, lw=1.2)
         if series["nu"] is not None:
@@ -137,7 +143,7 @@ def plot_convergence(all_series, points, output_path, *, n_blocks, window_text, 
         for ax in axes.flat:
             ax.axvline(point["t_start"], color=color, ls=":", lw=1.0)
 
-    ax_ratio.axhline(FLUX_CLOSURE, color="black", ls="--", lw=1.4, label="closure 1/4 (Eq. 80)")
+    ax_ratio.axhline(ISOTROPIC_CLOSURE, color="0.5", ls=":", lw=1.0, label="isotropic estimate 1/4")
     ax_chi.axhline(1.0, color="0.5", ls=":", lw=1.0)
     auto_series = [series for series in all_series if series["nu"] is not None]
     if auto_series:
@@ -196,28 +202,18 @@ def main(argv=None) -> Path:
         run_dirs = resolve_run_dirs(args.paths)
         all_series, points = [], []
         for run_dir in run_dirs:
-            series = load_series(run_dir)
-            try:
-                window = time_window(series["time"], tmin=args.tmin, tmax=args.tmax,
-                                     tail_fraction=args.tail_fraction)
-            except ValueError as error:
-                raise ValueError(f"{series['name']}: {error}") from None
+            run, series = load_series(run_dir)
+            window = run_window(run, tmin=args.tmin, tmax=args.tmax, tail_fraction=args.tail_fraction)
             all_series.append(series)
             points.append(summarize(series, window))
     except (OSError, ValueError) as error:
         parser.error(str(error))
 
-    # One run: save inside that run's folder. Several: in the folder that holds them all.
-    parents = {path.parent for path in run_dirs}
-    if len(run_dirs) == 1:
-        output_dir = run_dirs[0]
-    else:
-        output_dir = parents.pop() if len(parents) == 1 else Path.cwd()
-    output = (args.output or output_dir / "flux_convergence.png").expanduser().resolve()
+    output = (args.output or default_output_dir(run_dirs) / "flux_convergence.png").expanduser().resolve()
     print_table(points)
     write_summary_csv(points, args.summary_output or output.with_suffix(".csv"))
     plot_convergence(all_series, points, output, n_blocks=args.blocks,
-                     window_text=describe_window(args), show=args.show)
+                     window_text=describe_window(args.tmin, args.tmax, args.tail_fraction), show=args.show)
     return output
 
 

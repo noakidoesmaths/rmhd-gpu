@@ -41,16 +41,7 @@ if __package__ in {None, ""}:
 import numpy as np
 
 from vis._matplotlib import finalize_figure, import_pyplot
-from vis.run_quantities import FIELDS, load_run
-
-
-# Edit these to change the field labels and colours in the plots.
-LABELS = {
-    "drho": r"\delta\rho/\rho_0",
-    "du_par": r"\delta u_\parallel/v_A",
-    "db_par": r"(v_A^2/v_S^2)\,\delta B_\parallel/B_0",
-}
-COLORS = {"drho": "tab:blue", "du_par": "tab:green", "db_par": "tab:orange"}
+from vis.run_quantities import FIELD_COLORS as COLORS, FIELD_LABELS as LABELS, FIELDS, load_run
 
 
 def plot_compressive_panel(ax, run, name):
