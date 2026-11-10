@@ -46,6 +46,7 @@ from typing import Any
 import numpy as np
 
 from rmhdgpu.diagnostics import compressive_channels as channels
+from rmhdgpu.diagnostics import kz0_sectors
 from rmhdgpu.diagnostics.budget import flatten_conserved_quantity_budgets
 from rmhdgpu.diagnostics.scalar import STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO
 from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
@@ -62,9 +63,14 @@ DIAGNOSTIC_GAMMA = 5.0 / 3.0
 # Scalar diagnostic names provided by this equation module. The standard
 # `total_energy*` names are what budget plotting tools expect. Additional
 # entries are S09-specific energy partitions useful for quick run inspection.
+# Fields whose modal energies partition `total_energy` (z+ + z- = u_perp + b_perp);
+# used for the k_z = 0 / k_y = 0 sector columns.
+KZ0_SECTOR_FIELDS = ("z_plus", "z_minus", "du_par", "db_par", "s")
+
 SCALAR_DIAGNOSTIC_INFO = {
     **STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO,
     **channels.CHANNEL_SCALAR_DIAGNOSTIC_INFO,
+    **kz0_sectors.kz0_sector_column_info(KZ0_SECTOR_FIELDS),
     "alfvenic_energy": "Alfvenic part of the S09 energy: 0.5 <|grad phi|^2 + |grad psi|^2>.",
     "dupar_energy": "Unweighted kinetic parallel energy proxy: 0.5 <dupar^2>.",
     "dbpar_energy": "Unweighted magnetic-compressive energy proxy: 0.5 <dbpar^2>.",
@@ -708,6 +714,12 @@ def compute_equation_scalar_diagnostics(
             grid,
             backend,
             derived_parameters(params),
+        )
+    )
+    # Energy at k_z = 0, split into k_y = 0 (mean profiles <f>(x)) and k_y != 0.
+    diagnostics.update(
+        kz0_sectors.kz0_sector_energies(
+            _energy_modal_densities(state, grid, backend, params), KZ0_SECTOR_FIELDS, grid, backend,
         )
     )
 

@@ -355,6 +355,8 @@ def cli_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
     for cli_key, config_key in initial_condition_map.items():
         if cli_key in values:
             _set_section("initial_condition", config_key, values[cli_key])
+    if "initial_seed" in values:
+        overrides.setdefault("initial_condition", {}).setdefault("parameters", {})["seed"] = values["initial_seed"]
     if "mode_amplitude" in values:
         overrides.setdefault("initial_condition", {}).setdefault("parameters", {})["amplitude"] = values["mode_amplitude"]
     if "mode_branch" in values:

@@ -68,3 +68,35 @@ def test_script_writes_gif_with_global_color_scale(tmp_path):
     result = mf.main([str(tmp_path), "--field", "psi", "--output", str(output), "--dpi", "40"])
     assert result == output.resolve()
     assert output.exists() and output.stat().st_size > 0
+
+
+def _write_two_snapshots(tmp_path) -> None:
+    rng = np.random.default_rng(2)
+    for index, (time, step) in enumerate([(0.0, 0), (1.0, 100)], start=1):
+        _write_snapshot(tmp_path / f"fullfield_{index:04d}.h5", field=rng.standard_normal((8, 8, 8)), time=time, step=step)
+
+
+def test_explicit_mp4_without_ffmpeg_errors_instead_of_writing_gif(tmp_path, monkeypatch):
+    _write_two_snapshots(tmp_path)
+    monkeypatch.setattr(mf, "_find_ffmpeg", lambda: None)
+    output = tmp_path / "movie.mp4"
+    with pytest.raises(SystemExit, match="imageio-ffmpeg"):
+        mf.main([str(tmp_path), "--output", str(output), "--dpi", "40"])
+    assert not output.with_suffix(".gif").exists()
+
+
+def test_default_output_falls_back_to_gif_without_ffmpeg(tmp_path, monkeypatch):
+    _write_two_snapshots(tmp_path)
+    monkeypatch.setattr(mf, "_find_ffmpeg", lambda: None)
+    result = mf.main([str(tmp_path), "--dpi", "40"])
+    assert result.suffix == ".gif" and result.exists()
+
+
+def test_mp4_written_when_ffmpeg_available(tmp_path):
+    if mf._find_ffmpeg() is None:
+        pytest.skip("no ffmpeg (system or imageio-ffmpeg) available")
+    _write_two_snapshots(tmp_path)
+    output = tmp_path / "movie.mp4"
+    result = mf.main([str(tmp_path), "--output", str(output), "--dpi", "40"])
+    assert result == output.resolve()
+    assert output.exists() and output.stat().st_size > 0

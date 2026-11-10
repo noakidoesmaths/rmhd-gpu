@@ -6,6 +6,44 @@ from rmhdgpu.run import build_parser
 from rmhdgpu.runfile import cli_overrides_from_args, load_run_file, resolve_run_settings
 
 
+@pytest.mark.parametrize("seed", [0, 42])
+def test_initial_seed_cli_overrides_only_initial_seed(tmp_path, seed) -> None:
+    input_file = tmp_path / "seed.input"
+    input_file.write_text(
+        '[forcing]\nforcing_seed = 17\n'
+        '[initial_condition]\ntype = "random_spectrum"\n'
+        '[initial_condition.parameters]\nseed = 7\ninit_energy = 0.25\n',
+        encoding="utf-8",
+    )
+    args = build_parser().parse_args([str(input_file), "--initial-seed", str(seed)])
+    settings = resolve_run_settings(
+        runfile_path=args.input_file,
+        cli_overrides=cli_overrides_from_args(args),
+    )
+    assert settings.initial_condition.parameters["seed"] == seed
+    assert settings.initial_condition.parameters["init_energy"] == 0.25
+    assert settings.config.forcing_seed == 17
+    assert settings.resolved_document["initial_condition"]["parameters"]["seed"] == seed
+
+
+def test_initial_seed_cli_only_and_omitted(tmp_path) -> None:
+    args = build_parser().parse_args([
+        "--initial-condition", "random_spectrum", "--initial-seed", "23",
+    ])
+    settings = resolve_run_settings(runfile_path=None, cli_overrides=cli_overrides_from_args(args), cwd=tmp_path)
+    assert settings.initial_condition.parameters["seed"] == 23
+    input_file = tmp_path / "seed.input"
+    input_file.write_text(
+        '[initial_condition]\ntype = "random_spectrum"\n'
+        '[initial_condition.parameters]\nseed = 7\n', encoding="utf-8",
+    )
+    args = build_parser().parse_args([str(input_file)])
+    settings = resolve_run_settings(
+        runfile_path=args.input_file, cli_overrides=cli_overrides_from_args(args),
+    )
+    assert settings.initial_condition.parameters["seed"] == 7
+
+
 def test_minimal_runfile_parses(tmp_path) -> None:
     input_file = tmp_path / "minimal.input"
     input_file.write_text('title = "Minimal case"\n', encoding="utf-8")

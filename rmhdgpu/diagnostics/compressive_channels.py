@@ -28,7 +28,7 @@ The compressive fluctuations that z+ stirs up act in three ways (paper Fig. 1):
     DCF  direct compressive feedback: they act back on z+.
          q_dcf = -(d_t W+)|_buoyancy, positive while buoyancy drains z+.
     CCR  compressively catalyzed reflection: they create z-.
-         q_ccr_source = -(d_t W-)|_buoyancy, so it is NEGATIVE while buoyancy
+         q_ccr_source = 
          creates z-, which it does in almost every row of a z+ run.
     ACR  Alfven-catalyzed relaxation: they release background free energy.
          acr_B + acr_g + acr_th = Y, the source term of the total energy.
@@ -80,11 +80,6 @@ CHANNEL_SCALAR_DIAGNOSTIC_INFO = {
     "q_dcf": (
         "DCF heating rate -(d_t W+)|_buoyancy = -(g/2) <drho z+_x>, instantaneous; "
         "positive while buoyancy drains z+."
-    ),
-    "q_ccr_source": (
-        "-(d_t W-)|_buoyancy = -(g/2) <drho z-_x>, instantaneous; NEGATIVE while buoyancy creates z- "
-        "(the CCR source). w_minus_rhs_buoyancy is the same term with the opposite sign, averaged "
-        "over the output interval."
     ),
     "N_sq": "Run constant: Brunt-Vaisala frequency squared, N^2 = -g * F_rho. Positive is stable.",
     "vA": "Run constant: Alfven speed, echoed so plotting scripts need only the CSV.",
@@ -159,6 +154,7 @@ def elsasser_kperp_mean(f_hat: Any, grid: Any, backend: Any) -> float:
 
     E_k = 0.25 * grid.kperp2 * backend.xp.abs(f_hat) ** 2
     W = modal_average(E_k, grid, backend)
+
     if not W > 0.0:
         return 0.0
     return modal_average(backend.xp.sqrt(grid.kperp2) * E_k, grid, backend) / W
@@ -225,7 +221,6 @@ def fluxes_and_channels(fields: ChannelFields, grid: Any, backend: Any, p: Any) 
         V_rho_x_plus   = <drho z+_x>/2                                part carried by z+
         V_rho_x_minus  = <drho z-_x>/2                                part carried by z-
         d_t W+|_buoy   = g V_rho_x_plus     (minus this is q_dcf)
-        d_t W-|_buoy   = g V_rho_x_minus    (minus this is q_ccr_source)
         acr_g          = g V_rho_x                                    Y_g
         acr_B          = -vA^2 K_b0 V_psi_x                           Y_B
         acr_th         = (vA^2 K_p0/gamma + w_s/chi) <db_par u_x> + w_s V_rho_x   Y_th
@@ -375,7 +370,6 @@ def channel_scalar_diagnostics(
         "V_rho_x": fluxes["V_rho_x"],
         "V_psi_x": fluxes["V_psi_x"],
         "q_dcf": -fluxes["w_plus_buoyancy"],
-        "q_ccr_source": -fluxes["w_minus_buoyancy"],
         "N_sq": float(p.N_sq),
         "vA": float(p.vA),
         "acr_B": fluxes["acr_B"],

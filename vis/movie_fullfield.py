@@ -10,10 +10,17 @@ Examples
     python vis/movie_fullfield.py examples/outputs/fullfields \
         --field omega --slice-dir z --fps 15 --output omega.mp4
 
-The output format is chosen from the `--output` extension: `.mp4` (requires
-ffmpeg on PATH) or `.gif` (uses matplotlib's bundled Pillow writer). If no
-`--output` is given, an `.mp4` is written next to the snapshots and the code
-falls back to `.gif` when ffmpeg is unavailable.
+The output format is chosen from the `--output` extension: `.mp4` or `.gif`
+(uses matplotlib's bundled Pillow writer). MP4 needs an ffmpeg binary; the
+script uses `ffmpeg` on PATH if there is one, and otherwise the static binary
+shipped with the `imageio-ffmpeg` pip package. On clusters without a system
+ffmpeg (e.g. Aoraki) install that once into the env:
+
+    python -m pip install imageio-ffmpeg
+
+If no `--output` is given, an `.mp4` is written next to the snapshots, falling
+back to `.gif` (with a warning) only when no ffmpeg can be found. An explicit
+`--output something.mp4` never silently turns into a GIF.
 """
 
 from __future__ import annotations
@@ -81,6 +88,37 @@ def _slice_axes(
     if slice_dir == "y":
         return "x", "z", (float(x[0]), float(x[-1]), float(z[0]), float(z[-1]))
     return "x", "y", (float(x[0]), float(x[-1]), float(y[0]), float(y[-1]))
+
+
+def _find_ffmpeg() -> str | None:
+    """Return a usable ffmpeg executable, or None.
+
+    Order: matplotlib's configured `animation.ffmpeg_path` / PATH, then the
+    static binary bundled with the optional `imageio-ffmpeg` package (handy on
+    clusters such as Aoraki where no system ffmpeg is installed).
+    """
+    import shutil
+
+    import matplotlib
+
+    configured = matplotlib.rcParams["animation.ffmpeg_path"]
+    found = shutil.which(configured) or shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+    except ImportError:
+        return None
+    try:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:  # pragma: no cover - broken/unsupported imageio-ffmpeg install
+        return None
+
+
+_FFMPEG_HINT = (
+    "Install one with `python -m pip install imageio-ffmpeg` (or "
+    "`conda install -c conda-forge ffmpeg`) in the active environment."
+)
 
 
 def _freeze_layout(fig, title, title_texts: list[str]) -> None:
@@ -196,6 +234,30 @@ def main(argv: list[str] | None = None) -> Path:
         if not snapshot_files:
             raise SystemExit(f"Requested snapshot numbers were not present in {input_path}.")
 
+    if args.output is None:
+        base_dir = input_path if input_path.is_dir() else input_path.parent
+        output_path = base_dir / f"{args.field}_{args.slice_dir}_movie.mp4"
+    else:
+        output_path = Path(args.output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    writer: object
+    if output_path.suffix.lower() == ".gif":
+        writer = PillowWriter(fps=args.fps)
+    else:
+        ffmpeg_exe = _find_ffmpeg()
+        if ffmpeg_exe is not None:
+            import matplotlib
+
+            matplotlib.rcParams["animation.ffmpeg_path"] = ffmpeg_exe
+            writer = FFMpegWriter(fps=args.fps, bitrate=-1)
+        elif args.output is not None:
+            raise SystemExit(f"Cannot write {output_path.name}: no ffmpeg executable found. {_FFMPEG_HINT}")
+        else:
+            output_path = output_path.with_suffix(".gif")
+            print(f"WARNING: no ffmpeg found; writing an animated GIF instead. {_FFMPEG_HINT}")
+            writer = PillowWriter(fps=args.fps)
+
     frames, x, y, z, slice_index = _load_frames(
         snapshot_files,
         field=args.field,
@@ -250,23 +312,6 @@ def main(argv: list[str] | None = None) -> Path:
         return image, title
 
     anim = FuncAnimation(fig, update, frames=len(frames), interval=1000.0 / args.fps, blit=False)
-
-    if args.output is None:
-        base_dir = input_path if input_path.is_dir() else input_path.parent
-        output_path = base_dir / f"{args.field}_{args.slice_dir}_movie.mp4"
-    else:
-        output_path = Path(args.output).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    writer: object
-    if output_path.suffix.lower() == ".gif":
-        writer = PillowWriter(fps=args.fps)
-    elif FFMpegWriter.isAvailable():
-        writer = FFMpegWriter(fps=args.fps, bitrate=-1)
-    else:
-        output_path = output_path.with_suffix(".gif")
-        print("ffmpeg not found on PATH; falling back to an animated GIF.")
-        writer = PillowWriter(fps=args.fps)
 
     anim.save(str(output_path), writer=writer, dpi=args.dpi)
     print(f"Saved {output_path} ({len(frames)} frames)")

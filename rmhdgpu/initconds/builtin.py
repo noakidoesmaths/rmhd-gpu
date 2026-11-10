@@ -44,6 +44,7 @@ RANDOM_SPECTRUM_DEFAULTS = {
     "alpha": 0.0,
     "init_energy": 0.75,
     "seed": 0,
+    "initialization_backend": "native",
     "exclude_kpar0": True,   # drop the marginal k_par=0, k_perp!=0 plane
 }
 
@@ -56,6 +57,7 @@ RANDOM_SPECTRUM_ONE_WAVE_DEFAULTS = {
     "alpha_prl": 0.0,
     "init_energy": 0.75,
     "seed": 0,
+    "initialization_backend": "native",
     "exclude_kpar0": True,
 }
 
@@ -376,6 +378,7 @@ def _normalize_random_spectrum_parameters(parameters: dict[str, Any]) -> dict[st
 
     normalized = dict(RANDOM_SPECTRUM_DEFAULTS)
     normalized.update(parameters)
+    _validate_initialization_backend(normalized)
 
     for key in ("n_min", "n_max", "alpha", "init_energy"):
         normalized[key] = float(normalized[key])
@@ -404,6 +407,7 @@ def _normalize_random_spectrum_one_wave_parameters(parameters: dict[str, Any]) -
 
     normalized = dict(RANDOM_SPECTRUM_ONE_WAVE_DEFAULTS)
     normalized.update(parameters)
+    _validate_initialization_backend(normalized)
 
     for key in ("n_min_perp", "n_min_prl", "n_max_perp", "n_max_prl", "alpha", "alpha_prl", "init_energy"):
         normalized[key] = float(normalized[key])
@@ -432,6 +436,34 @@ def _normalize_random_spectrum_one_wave_parameters(parameters: dict[str, Any]) -
         raise ValueError("init_energy must be nonzero so the spectrum can be normalized.")
 
     return normalized
+
+def _validate_initialization_backend(parameters: dict[str, Any]) -> None:
+    if parameters["initialization_backend"] not in ("native", "numpy"):
+        raise ValueError("initialization_backend must be 'native' or 'numpy'.")
+
+
+def _numpy_initial_state(builder, *, parameters, grid, backend, dealias_mask,
+                         field_names, params) -> State:
+    """Build the entire initial state on CPU, then copy its Fourier coefficients.
+
+    Doing only the RNG on CPU would still leave GPU-dependent FFTs and energy
+    reductions in initialization. Use the existing builder with a NumPy grid
+    for all of these operations; the evolution backend remains unchanged.
+    """
+    from rmhdgpu.backend import Backend
+    from rmhdgpu.fft import FFTManager
+    from rmhdgpu.grid import build_grid
+
+    cpu_backend = Backend(xp=np, backend_name="numpy", is_gpu=False)
+    cpu_grid = build_grid(grid, cpu_backend)
+    cpu_mask = None if dealias_mask is None else backend.to_numpy(dealias_mask)
+    cpu_state = builder(
+        parameters={**parameters, "initialization_backend": "native"},
+        grid=cpu_grid, backend=cpu_backend, fft=FFTManager(cpu_grid, cpu_backend),
+        dealias_mask=cpu_mask, field_names=field_names, params=params,
+    )
+    return State(grid, backend, field_names=field_names, data=dict(cpu_state.items()))
+
 
 def _rescale_state_to_total_energy(
     state: State,
@@ -643,8 +675,13 @@ def random_spectrum(
     `init_energy`.
     """
 
-    state = State(grid, backend, field_names=list(field_names))
     normalized = _normalize_random_spectrum_parameters(_as_parameter_dict(parameters))
+    if normalized["initialization_backend"] == "numpy":
+        return _numpy_initial_state(
+            random_spectrum, parameters=normalized, grid=grid, backend=backend,
+            dealias_mask=dealias_mask, field_names=field_names, params=params,
+        )
+    state = State(grid, backend, field_names=list(field_names))
     rng = backend.random_generator(normalized["seed"])
 
     for field_name in state.field_names:
@@ -719,8 +756,13 @@ def random_spectrum_one_wave(
     physically different run from the `phi = +psi` version, not a relabeling.
     """
 
-    state = State(grid, backend, field_names=list(field_names))
     normalized = _normalize_random_spectrum_one_wave_parameters(_as_parameter_dict(parameters))
+    if normalized["initialization_backend"] == "numpy":
+        return _numpy_initial_state(
+            random_spectrum_one_wave, parameters=normalized, grid=grid, backend=backend,
+            dealias_mask=dealias_mask, field_names=field_names, params=params,
+        )
+    state = State(grid, backend, field_names=list(field_names))
     rng = backend.random_generator(normalized["seed"])
 
     

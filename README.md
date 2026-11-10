@@ -36,6 +36,17 @@ After that, `python -m rmhdgpu.run ...` works from any folder, not just from ins
 
 ## Running Simulations
 
+Use `--initial-seed 42` to override `[initial_condition.parameters] seed` for
+an initializer that supports a seed (for example, `random_spectrum`):
+
+```bash
+python -m rmhdgpu.run input.input --initial-seed 42
+```
+
+This is independent of `--forcing-seed`. If omitted, the initial-condition
+seed from the input file (or the initializer default) is preserved.
+
+
 There are two normal run modes:
 
 - input-file mode: `python -m rmhdgpu.run filename.input`
@@ -120,6 +131,12 @@ Outputs are:
 Scalar diagnostics are split into generic per-field columns such as
 `psi_rms`, `psi_mean`, and `psi_max_abs`, plus equation-specific quantities
 defined by the selected equation module.
+
+The inhomogeneous (`inhomogeneous_rmhd_rho` / `_s`) equation sets also write
+the energy in the `k_z = 0` plane: `E_kz0_ky0_<field>` (the `k_y = 0` mean
+profiles `<f>(x)`), `E_kz0_kyn0_<field>` and `E_kzn0_<field>` for `z_plus`,
+`z_minus`, `du_par`, `db_par` and the entropy field, plus the totals
+`E_kz0_ky0 + E_kz0_kyn0 + E_kzn0 = total_energy`.
 
 The scalar CSV also carries saved conserved-quantity budget columns. For the
 current total-energy budget these include:
@@ -486,6 +503,37 @@ Currently supported initial conditions are:
 - `type = "single_fourier_mode"` with `k_indices = [kx, ky, kz]`, `amplitude`, and `seed`; it puts independent random coefficients into the same Fourier mode for every evolved field
 - `type = "low_beta_stratified_mode"` for the low-beta stratified linear eigensystem; for `N2 > 0`, `amplitude` rescales the mode so `total_energy ~ amplitude^2`
 
+### Matching random initial fields across GPUs
+
+Both `random_spectrum` and `random_spectrum_one_wave` accept
+`initialization_backend = "numpy"` under `[initial_condition.parameters]`:
+
+```toml
+[initial_condition]
+type = "random_spectrum_one_wave"
+
+[initial_condition.parameters]
+seed = 1234
+initialization_backend = "numpy"
+init_energy = 0.64
+```
+
+Add the option to your existing parameters, preserving your spectral bands and
+other settings. This builds the complete initial state on the CPU (random draws,
+FFTs, filtering, wave relations, and energy normalization), then copies the
+Fourier coefficients to the chosen evolution backend. Thus H100, A100, and L40
+receive identical initializer coefficients with the same seed, grid, mask,
+precision, physical parameters, code, and NumPy environment. It also works with
+the NumPy and SciPy CPU evolution backends. The default `"native"` preserves the
+previous backend-local initialization. The option is recorded in resolved config.
+
+This costs CPU initialization time and host memory for a full initial state and
+scratch arrays, once at startup. It does not change subsequent forcing, startup
+forcing adjustments, or time integration, which can still differ through GPU
+roundoff and nonlinear amplification. It does not promise identical results
+across NumPy versions or different CPU numerical environments; for archival
+reproducibility, preserve the initial arrays and software environment as well.
+
 Adding a new initial condition means adding and registering a builder in
 `rmhdgpu.initconds`. For equation-specific eigenmodes, keep the reusable
 eigenvector construction in a small module such as
@@ -561,6 +609,8 @@ Useful notes:
 - `plot_flux_convergence.py` checks that those closure points have settled: it plots `V_rho_x/(F_rho z+ l_perp)` (with block means and the run's estimate, dashed), `z-/z+`, `chi_A` and the auto-dissipation `nu_perp` against time, marks the averaging window, and prints each run's drift (second-half over first-half window mean, minus 1), e.g. `python vis/plot_flux_convergence.py "examples/Kp0_forcing/*"`
 - `plot_zplus_heating.py` compares the two ways `z+` loses energy with their closure estimates, side by side: DCF (measured `q_dcf` against Eq. (69), `-g F_rho eta_turb`) and CCR (the `W+` dissipation rate against Eq. (75), `|g F_rho| l_perp z+_x / 4`). It prints the window means, each channel's share of the measured `z+` loss and `W+ z-_rms / l_perp` (CCR with the measured `z-`), and warns when `D+` cannot be read as CCR heating (`z-` forced, or more than 10% of it in the forced shell), e.g. `python vis/plot_zplus_heating.py RUN_DIRECTORY --tmin 100`
 - `plot_slaved_gradient_scan.py` saves one figure per compressive field (`slaved_gradient_scan_drho.png` and so on) of saturated RMS against background drive across a scan; `--fields` picks which to draw
+- `plot_kpar0_energy.py` shows how much of an inhomogeneous run's energy sits at `k_par = 0`, against time: the share of the total energy in waves (`k_par != 0`), 2D structures (`k_par = 0, ky != 0`) and mean profiles `<f>(x)` (`k_par = 0, ky = 0`), then each field's share in the mean profiles and in the whole `k_par = 0` plane. It reads the `E_kz*` columns of `scalar_diagnostics.csv`; runs made before those columns existed are summed from their `fullfields/` snapshots instead. `--exclude-fields z_plus` leaves the forced wave out of the total, e.g. `python vis/plot_kpar0_energy.py RUN_DIRECTORY`
+- `plot_kpar0_maps.py` shows where the `drho` energy sits in the `(kx, ky)` plane at one snapshot (`--index`, default the last), for `k_par = 0` and for `k_par != 0`, e.g. `python vis/plot_kpar0_maps.py RUN_DIRECTORY`
 - `run_quantities.py` is not a plot: it is the one place the inhomogeneous RMHD plots get their quantities from. It reads a run's saved CSV and input and returns each measured quantity next to its closure estimate (Eqs. 47, 69, 73, 75, 80, 85 of the paper), with `z+_x = rms(z+_x)` in place of the paper's isotropy assumption and `eta_turb = l_perp z+_x^2 / (2 z+_rms)`. Use it in Spyder with `run = load_run("RUN_DIRECTORY")`, then e.g. `run.q_dcf` and `run.q_dcf_predicted`. It also reads CSVs written before 2026-10-08, when the `k_perp_plus`/`k_prl_plus` columns were called `w_plus_kperp`/`w_plus_kprl`
 - most driver, plotting, profiling, and example scripts support `--help` to print available options
 
@@ -621,7 +671,7 @@ mkdir -p ~/conda-envs
 conda create -y -p ~/conda-envs/curmpy python=3.10
 conda activate ~/conda-envs/curmpy
 python -m pip install --upgrade pip
-python -m pip install numpy scipy matplotlib pytest h5py cupy
+python -m pip install numpy scipy matplotlib pytest h5py cupy imageio-ffmpeg
 cd ~/path/to/rmhd-gpu
 python -m pip install -e .
 ```

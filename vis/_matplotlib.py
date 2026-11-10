@@ -45,6 +45,7 @@ def import_pyplot(*, show: bool) -> Any:
 def finalize_figure(fig: Any, *, output_path: Path, show: bool, plt: Any) -> None:
     """Save one figure, optionally show it, and then close it."""
 
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=160)
     print(f"Saved {output_path}")
     if show:

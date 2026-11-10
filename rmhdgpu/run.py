@@ -163,6 +163,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="Initial condition family for CLI mode or run-file override.",
     )
+    parser.add_argument(
+        "--initial-seed",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Override initial_condition.parameters.seed for initializers that support a seed.",
+    )
     parser.add_argument("--mode-kx", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--mode-ky", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--mode-kz", type=int, default=argparse.SUPPRESS)
