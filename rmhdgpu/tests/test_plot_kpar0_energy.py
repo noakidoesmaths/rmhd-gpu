@@ -1,4 +1,4 @@
-"""The k_par = 0 plots: vis/plot_kpar0_energy.py and vis/plot_kpar0_maps.py."""
+"""The k_par = 0 and ky = 0 plots: vis/plot_kpar0_energy.py, plot_kpar0_maps.py, plot_ky0_energy.py."""
 import csv
 
 import numpy as np
@@ -124,3 +124,44 @@ def test_exclude_fields(tmp_path):
     assert main([str(tmp_path), "--exclude-fields", "z_plus", "z_minus"]).is_file()
     with pytest.raises(SystemExit, match="every field"):
         main([str(tmp_path), "--exclude-fields", *FIELDS])
+
+
+def test_ky0_plot_from_snapshots_adds_up_to_total_energy(tmp_path):
+    """vis/plot_ky0_energy.py on an old run: ky = 0 plus ky != 0 is total_energy, at every k_par."""
+    from vis.plot_ky0_energy import main as ky0_main
+
+    config, backend, grid, state = write_run_with_one_snapshot(tmp_path, seed=11)
+    columns = sector_columns_from_snapshots(tmp_path)
+
+    total_energy = get_equation_module(config.equation_set).total_energy(state, grid, backend, config)
+    assert sum(columns[f"E_ky0_{f}"][0] + columns[f"E_kyn0_{f}"][0] for f in FIELDS) == pytest.approx(
+        total_energy, rel=1e-12)
+    # ky = 0 at all k_par holds the k_par = 0 mean profiles plus the ky = 0 waves of the random state.
+    assert columns["E_ky0_drho"][0] > columns["E_kz0_ky0_drho"][0] > 0.0
+
+    path = ky0_main([str(tmp_path), "--exclude-fields", "z_plus"])
+    assert path == tmp_path / "ky0_energy.png"
+    assert path.is_file() and path.stat().st_size > 0
+
+
+def test_ky0_plot_from_the_csv_alone(tmp_path):
+    """With the E_ky0_* / E_kyn0_* columns in the CSV, no snapshots or input file are needed."""
+    from vis.plot_ky0_energy import main as ky0_main
+
+    names = [f"{prefix}_{field}" for field in FIELDS for prefix in ("E_ky0", "E_kyn0")]
+    with (tmp_path / "scalar_diagnostics.csv").open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["time", "step", *names])
+        for i in range(4):
+            writer.writerow([0.5 * i, i, *[0.1 + 0.01 * i * j for j in range(len(names))]])
+    path = ky0_main([str(tmp_path / "scalar_diagnostics.csv")])
+    assert path == tmp_path / "ky0_energy.png"
+    assert path.is_file() and path.stat().st_size > 0
+
+
+def test_ky0_plot_reports_a_run_without_columns_or_snapshots(tmp_path):
+    from vis.plot_ky0_energy import main as ky0_main
+
+    (tmp_path / "scalar_diagnostics.csv").write_text("time,step,total_energy\n0.0,0,1.0\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="no E_ky0_"):
+        ky0_main([str(tmp_path)])

@@ -46,3 +46,20 @@ def energy_densities(snapshot_path, config, backend, grid, fft):
         fields = {name: fft.r2c(np.asarray(handle["output"][name])) for name in config.field_names}
     state = State(grid, backend, field_names=list(fields), data=fields)
     return time, _energy_modal_densities(state, grid, backend, config)
+
+
+def sector_columns_from_snapshots(run_dir, every=1):
+    """The `E_kz*` and `E_ky*` columns of the scalar CSV, recomputed with one row per snapshot.
+
+    For runs made before the solver wrote those columns. Uses the solver's own
+    `kz0_sector_energies`, so the numbers are the ones a new run would save.
+    """
+    from rmhdgpu.diagnostics.kz0_sectors import kz0_sector_energies
+    from rmhdgpu.equations.rmhd_by_nokia_rho import KZ0_SECTOR_FIELDS
+
+    config, backend, grid, fft = load_grid(run_dir)
+    rows = []
+    for path in sorted((Path(run_dir) / "fullfields").glob("fullfield_*.h5"))[::every]:
+        time, densities = energy_densities(path, config, backend, grid, fft)
+        rows.append({"time": time, **kz0_sector_energies(densities, KZ0_SECTOR_FIELDS, grid, backend)})
+    return {name: np.array([row[name] for row in rows]) for name in rows[0]}

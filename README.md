@@ -137,6 +137,8 @@ the energy in the `k_z = 0` plane: `E_kz0_ky0_<field>` (the `k_y = 0` mean
 profiles `<f>(x)`), `E_kz0_kyn0_<field>` and `E_kzn0_<field>` for `z_plus`,
 `z_minus`, `du_par`, `db_par` and the entropy field, plus the totals
 `E_kz0_ky0 + E_kz0_kyn0 + E_kzn0 = total_energy`.
+They also write the split by `k_y` alone, counting every `k_z`:
+`E_ky0_<field>` and `E_kyn0_<field>`, with totals `E_ky0 + E_kyn0 = total_energy`.
 
 The scalar CSV also carries saved conserved-quantity budget columns. For the
 current total-energy budget these include:
@@ -611,6 +613,7 @@ Useful notes:
 - `plot_slaved_gradient_scan.py` saves one figure per compressive field (`slaved_gradient_scan_drho.png` and so on) of saturated RMS against background drive across a scan; `--fields` picks which to draw
 - `plot_kpar0_energy.py` shows how much of an inhomogeneous run's energy sits at `k_par = 0`, against time: the share of the total energy in waves (`k_par != 0`), 2D structures (`k_par = 0, ky != 0`) and mean profiles `<f>(x)` (`k_par = 0, ky = 0`), then each field's share in the mean profiles and in the whole `k_par = 0` plane. It reads the `E_kz*` columns of `scalar_diagnostics.csv`; runs made before those columns existed are summed from their `fullfields/` snapshots instead. `--exclude-fields z_plus` leaves the forced wave out of the total, e.g. `python vis/plot_kpar0_energy.py RUN_DIRECTORY`
 - `plot_kpar0_maps.py` shows where the `drho` energy sits in the `(kx, ky)` plane at one snapshot (`--index`, default the last), for `k_par = 0` and for `k_par != 0`, e.g. `python vis/plot_kpar0_maps.py RUN_DIRECTORY`
+- `plot_ky0_energy.py` compares the energy at `ky = 0` with the energy at `ky != 0` against time, counting every `k_par` (so a forced `ky = 0` wave counts as `ky = 0`): the share of the total energy in each, and each field's share at `ky = 0`. It reads the `E_ky0_*` / `E_kyn0_*` columns of `scalar_diagnostics.csv`; runs made before those columns existed are summed from their `fullfields/` snapshots instead (`--every N` uses every Nth one), e.g. `python vis/plot_ky0_energy.py RUN_DIRECTORY`
 - `run_quantities.py` is not a plot: it is the one place the inhomogeneous RMHD plots get their quantities from. It reads a run's saved CSV and input and returns each measured quantity next to its closure estimate (Eqs. 47, 69, 73, 75, 80, 85 of the paper), with `z+_x = rms(z+_x)` in place of the paper's isotropy assumption and `eta_turb = l_perp z+_x^2 / (2 z+_rms)`. Use it in Spyder with `run = load_run("RUN_DIRECTORY")`, then e.g. `run.q_dcf` and `run.q_dcf_predicted`. It also reads CSVs written before 2026-10-08, when the `k_perp_plus`/`k_prl_plus` columns were called `w_plus_kperp`/`w_plus_kprl`
 - most driver, plotting, profiling, and example scripts support `--help` to print available options
 

@@ -74,6 +74,9 @@ def test_sectors_add_up_to_total_energy(equation_set):
     for field in module.KZ0_SECTOR_FIELDS:
         parts = out[f"E_kz0_ky0_{field}"] + out[f"E_kz0_kyn0_{field}"] + out[f"E_kzn0_{field}"]
         assert parts == pytest.approx(modal_density_average(densities[field], grid, backend), rel=1e-12)
+        assert out[f"E_ky0_{field}"] + out[f"E_kyn0_{field}"] == pytest.approx(parts, rel=1e-12)
+    assert out["E_ky0"] + out["E_kyn0"] == pytest.approx(total, rel=1e-12)
+    assert min(out["E_ky0"], out["E_kyn0"]) > 0.0
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))
@@ -85,7 +88,7 @@ def test_every_column_is_documented_and_written(equation_set):
         state, grid=grid, fft=fft, backend=backend, params=config, workspace=Workspace(grid, backend),
     )
     info = kz0_sectors.kz0_sector_column_info(module.KZ0_SECTOR_FIELDS)
-    assert len(info) == 3 * len(module.KZ0_SECTOR_FIELDS) + 3
+    assert len(info) == 5 * len(module.KZ0_SECTOR_FIELDS) + 5
     assert set(info) <= set(diagnostics)
     assert set(info) <= set(module.SCALAR_DIAGNOSTIC_INFO)
 
@@ -112,6 +115,9 @@ def test_single_mode_lands_in_its_sector(kx, ky, kz, sector):
     total = out["E_kz0_ky0_drho"] + out["E_kz0_kyn0_drho"] + out["E_kzn0_drho"]
     assert total > 0.0
     assert out[f"E_{sector}_drho"] == pytest.approx(total, rel=1e-12)
+    # The k_y split ignores k_z: the mode is at k_y = 0 or not, whatever its k_z.
+    ky_column = "E_ky0_drho" if ky == 0 else "E_kyn0_drho"
+    assert out[ky_column] == pytest.approx(total, rel=1e-12)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))

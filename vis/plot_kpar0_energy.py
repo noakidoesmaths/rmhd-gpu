@@ -26,9 +26,8 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import numpy as np
-
 from vis._matplotlib import finalize_figure, import_pyplot
+from vis._snapshots import sector_columns_from_snapshots
 from vis.run_quantities import read_columns, safe_divide
 
 FIELDS = ("z_plus", "z_minus", "du_par", "db_par", "drho")
@@ -40,19 +39,6 @@ LABELS = {
     "drho": r"$\delta\rho$ (entropy)",
 }
 COLORS = {"z_plus": "tab:red", "z_minus": "tab:cyan", "du_par": "tab:green", "db_par": "tab:orange", "drho": "tab:blue"}
-
-
-def sector_columns_from_snapshots(run_dir):
-    """The same `E_kz*` columns as the CSV, one row per snapshot, for runs that predate them."""
-    from rmhdgpu.diagnostics.kz0_sectors import kz0_sector_energies
-    from vis._snapshots import energy_densities, load_grid
-
-    config, backend, grid, fft = load_grid(run_dir)
-    rows = []
-    for path in sorted((run_dir / "fullfields").glob("fullfield_*.h5")):
-        time, densities = energy_densities(path, config, backend, grid, fft)
-        rows.append({"time": time, **kz0_sector_energies(densities, FIELDS, grid, backend)})
-    return {name: np.array([row[name] for row in rows]) for name in rows[0]}
 
 
 def main(argv=None):
