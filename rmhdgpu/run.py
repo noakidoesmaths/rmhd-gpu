@@ -53,7 +53,12 @@ from rmhdgpu.runfile import (
     write_resolved_config,
 )
 from rmhdgpu.state import State
-from rmhdgpu.steppers import compute_cfl_timestep, if_ssprk3_step, project_out_kpar0
+from rmhdgpu.steppers import (
+    apply_mode_projections,
+    compute_cfl_timestep,
+    if_ssprk3_step,
+    mode_projections_enabled,
+)
 import rmhdgpu.operators as operators
 from rmhdgpu.utils import check_state_finite
 from rmhdgpu.workspace import Workspace
@@ -513,7 +518,7 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
             averaged.setdefault("total_energy", {})
             for rhs_terms in averaged.values():
                 rhs_terms.setdefault("forcing", 0.0)
-                if project_kpar0:
+                if any_projection:
                     rhs_terms.setdefault("projection", 0.0)
             return averaged
 
@@ -627,7 +632,7 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                     current_time=t,
                 )
 
-        project_kpar0 = bool(getattr(config, "project_kpar0", False))
+        any_projection = mode_projections_enabled(config)
 
         try:
             if config.fail_on_nonfinite:
@@ -638,8 +643,11 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
             # already empty); it runs before any budget interval starts, so it is
             # intentionally not booked as a budget term. If project_kpar0=true is
             # used with exclude_kpar0=false, this startup removal is unaccounted.
-            if project_kpar0:
-                project_out_kpar0(state, grid)
+            # project_ky0 / project_kx0 do the same for the k_y = 0 / k_x = 0
+            # modes. Random-spectrum builders already apply these projections
+            # before normalizing init_energy, so cleanup removes nothing from
+            # those initial states unless forcing startup has added such modes.
+            apply_mode_projections(state, grid, config)
 
             _write_due_diagnostics(dt_value=0.0)
 
@@ -705,15 +713,15 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                 else:
                     state = stepped_state
 
-                # Re-project the k_par = 0 plane the nonlinear brackets repopulate
-                # each step, and book the removed energy as a `projection` sink so
-                # the total-energy budget stays closed (same accounting path as
-                # forcing above).
-                if project_kpar0:
+                # Re-project the k_par = 0, k_y = 0 and/or k_x = 0 modes switched
+                # on in [runtime], which the nonlinear brackets repopulate each
+                # step, and book the removed energy as one `projection` sink so
+                # the total-energy budget stays closed (same path as forcing above).
+                if any_projection:
                     projection_values_before = (
                         _conserved_quantity_values(state) if track_budget else {}
                     )
-                    project_out_kpar0(state, grid)
+                    apply_mode_projections(state, grid, config)
                     if track_budget:
                         _accumulate_kicks(
                             "projection",

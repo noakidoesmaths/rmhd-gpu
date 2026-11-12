@@ -32,6 +32,7 @@ from rmhdgpu.initconds.eigenmodes_s09 import alfven_branch_phi_over_psi, alfven_
 from rmhdgpu.masks import apply_mask
 from rmhdgpu.operators import dx, dy, lap_perp
 from rmhdgpu.state import State
+from rmhdgpu.steppers import apply_mode_projections
 
 
 InitialConditionBuilder = Callable[..., State]
@@ -473,8 +474,11 @@ def _rescale_state_to_total_energy(
     backend: Any,
     params: Any,
 ) -> State:
-    """Rescale all evolved fields so the equation-module total energy matches `target_energy`."""
+    """Project first, then normalize the energy of the surviving modes."""
 
+    # Runtime projections must precede normalization: otherwise startup cleanup
+    # would reduce init_energy before the first diagnostic or forcing measurement.
+    apply_mode_projections(state, grid, params)
     equation_module = get_equation_module(getattr(params, "equation_set"))
     current_energy = float(equation_module.total_energy(state, grid, backend, params))
     if not np.isfinite(current_energy):

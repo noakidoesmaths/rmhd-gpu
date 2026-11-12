@@ -139,6 +139,11 @@ profiles `<f>(x)`), `E_kz0_kyn0_<field>` and `E_kzn0_<field>` for `z_plus`,
 `E_kz0_ky0 + E_kz0_kyn0 + E_kzn0 = total_energy`.
 They also write the split by `k_y` alone, counting every `k_z`:
 `E_ky0_<field>` and `E_kyn0_<field>`, with totals `E_ky0 + E_kyn0 = total_energy`.
+Likewise by `k_x` alone: `E_kx0_<field>` and `E_kxn0_<field>`, with totals
+`E_kx0 + E_kxn0 = total_energy`.
+The same is written for `k_perp = 0` (`k_x = k_y = 0`, the z-only profiles):
+`E_kperp0_<field>` and `E_kperpn0_<field>`, with totals `E_kperp0 + E_kperpn0 = total_energy`.
+`z_plus` and `z_minus` have no energy at `k_perp = 0`.
 
 The scalar CSV also carries saved conserved-quantity budget columns. For the
 current total-energy budget these include:
@@ -229,7 +234,8 @@ Supported sections are:
 - `[time]`: `tmax`, `dt_init`, `dt_min`, `dt_max`, `cfl_number`, `use_variable_dt`
 - `[output]`: `t_out_scal`, `t_out_spec`, `t_out_full`
 - `[backend]`: `backend`, `fft_workers`, `real_dtype`, `complex_dtype`
-- `[runtime]`: `runtime_check_every`, `progress_output_every`, `fail_on_nonfinite`, `dealias`, `dealias_mode`
+- `[runtime]`: `runtime_check_every`, `progress_output_every`, `fail_on_nonfinite`, `dealias`, `dealias_mode`, `project_kpar0`, `project_ky0`, `project_kx0`
+  - `project_kpar0 = true` zeroes every `k_z = 0` mode (the z-average of each field) at startup and after every step; `project_ky0 = true` does the same for every `k_y = 0` mode (the y-average, at all `k_z`) and `project_kx0 = true` for every `k_x = 0` mode (the x-average). Any combination can be switched on. They are control options for testing what depends on those modes, not physical requirements. For `random_spectrum` and `random_spectrum_one_wave`, these projections are applied before normalizing to `init_energy`, so the requested energy belongs to the surviving modes. The energy removed each step is saved as the `projection` budget term; startup cleanup is not booked.
 - `[physics]`: `vA`, `cs2_over_vA2`, `N2`
 - `[forcing]`, `[forcing.field_energy_injection_rates]`, and `[forcing.controlled_shell]`
 - `[dissipation]` for optional auto-dissipation control
@@ -613,7 +619,9 @@ Useful notes:
 - `plot_slaved_gradient_scan.py` saves one figure per compressive field (`slaved_gradient_scan_drho.png` and so on) of saturated RMS against background drive across a scan; `--fields` picks which to draw
 - `plot_kpar0_energy.py` shows how much of an inhomogeneous run's energy sits at `k_par = 0`, against time: the share of the total energy in waves (`k_par != 0`), 2D structures (`k_par = 0, ky != 0`) and mean profiles `<f>(x)` (`k_par = 0, ky = 0`), then each field's share in the mean profiles and in the whole `k_par = 0` plane. It reads the `E_kz*` columns of `scalar_diagnostics.csv`; runs made before those columns existed are summed from their `fullfields/` snapshots instead. `--exclude-fields z_plus` leaves the forced wave out of the total, e.g. `python vis/plot_kpar0_energy.py RUN_DIRECTORY`
 - `plot_kpar0_maps.py` shows where the `drho` energy sits in the `(kx, ky)` plane at one snapshot (`--index`, default the last), for `k_par = 0` and for `k_par != 0`, e.g. `python vis/plot_kpar0_maps.py RUN_DIRECTORY`
+- `plot_kx0_energy.py` compares the energy at `kx = 0` (no variation along `x`, the direction of the background gradients) with the energy at `kx != 0`, from the `E_kx0_*` / `E_kxn0_*` columns, e.g. `python vis/plot_kx0_energy.py RUN_DIRECTORY`
 - `plot_ky0_energy.py` compares the energy at `ky = 0` with the energy at `ky != 0` against time, counting every `k_par` (so a forced `ky = 0` wave counts as `ky = 0`): the share of the total energy in each, and each field's share at `ky = 0`. It reads the `E_ky0_*` / `E_kyn0_*` columns of `scalar_diagnostics.csv`; runs made before those columns existed are summed from their `fullfields/` snapshots instead (`--every N` uses every Nth one), e.g. `python vis/plot_ky0_energy.py RUN_DIRECTORY`
+- `plot_kperp0_energy.py` does the same for `k_perp = 0` (`kx = ky = 0`, the part of each field that depends on `z` only) against `k_perp != 0`, from the `E_kperp0_*` / `E_kperpn0_*` columns. `z+` and `z-` have no energy at `k_perp = 0`, so the per-field panel shows `du_par`, `db_par` and `drho`, e.g. `python vis/plot_kperp0_energy.py RUN_DIRECTORY`
 - `run_quantities.py` is not a plot: it is the one place the inhomogeneous RMHD plots get their quantities from. It reads a run's saved CSV and input and returns each measured quantity next to its closure estimate (Eqs. 47, 69, 73, 75, 80, 85 of the paper), with `z+_x = rms(z+_x)` in place of the paper's isotropy assumption and `eta_turb = l_perp z+_x^2 / (2 z+_rms)`. Use it in Spyder with `run = load_run("RUN_DIRECTORY")`, then e.g. `run.q_dcf` and `run.q_dcf_predicted`. It also reads CSVs written before 2026-10-08, when the `k_perp_plus`/`k_prl_plus` columns were called `w_plus_kperp`/`w_plus_kprl`
 - most driver, plotting, profiling, and example scripts support `--help` to print available options
 

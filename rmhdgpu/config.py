@@ -158,6 +158,8 @@ class Config:
     progress_output_every: int | None = 100
     fail_on_nonfinite: bool = True
     project_kpar0: bool = False
+    project_ky0: bool = False
+    project_kx0: bool = False
     t_out_scal: float = 0.1
     t_out_spec: float = 0.0
     t_out_full: float = 0.0
@@ -258,6 +260,10 @@ class Config:
             raise ValueError(f"fail_on_nonfinite must be bool; got {self.fail_on_nonfinite!r}.")
         if not isinstance(self.project_kpar0, bool):
             raise ValueError(f"project_kpar0 must be bool; got {self.project_kpar0!r}.")
+        if not isinstance(self.project_ky0, bool):
+            raise ValueError(f"project_ky0 must be bool; got {self.project_ky0!r}.")
+        if not isinstance(self.project_kx0, bool):
+            raise ValueError(f"project_kx0 must be bool; got {self.project_kx0!r}.")
         if not isinstance(self.use_forcing, bool):
             raise ValueError(f"use_forcing must be bool; got {self.use_forcing!r}.")
         self.forcing_mode = str(self.forcing_mode)

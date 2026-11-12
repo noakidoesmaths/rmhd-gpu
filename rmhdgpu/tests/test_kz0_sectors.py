@@ -75,7 +75,15 @@ def test_sectors_add_up_to_total_energy(equation_set):
         parts = out[f"E_kz0_ky0_{field}"] + out[f"E_kz0_kyn0_{field}"] + out[f"E_kzn0_{field}"]
         assert parts == pytest.approx(modal_density_average(densities[field], grid, backend), rel=1e-12)
         assert out[f"E_ky0_{field}"] + out[f"E_kyn0_{field}"] == pytest.approx(parts, rel=1e-12)
+        assert out[f"E_kperp0_{field}"] + out[f"E_kperpn0_{field}"] == pytest.approx(parts, rel=1e-12)
+        assert out[f"E_kx0_{field}"] + out[f"E_kxn0_{field}"] == pytest.approx(parts, rel=1e-12)
+    assert out["E_kx0"] + out["E_kxn0"] == pytest.approx(total, rel=1e-12)
+    assert min(out["E_kx0"], out["E_kxn0"]) > 0.0
     assert out["E_ky0"] + out["E_kyn0"] == pytest.approx(total, rel=1e-12)
+    assert out["E_kperp0"] + out["E_kperpn0"] == pytest.approx(total, rel=1e-12)
+    # z± carry k_perp^2, so they have nothing at k_perp = 0; the compressive fields do.
+    assert out["E_kperp0_z_plus"] == 0.0 and out["E_kperp0_z_minus"] == 0.0
+    assert out["E_kperp0_du_par"] > 0.0
     assert min(out["E_ky0"], out["E_kyn0"]) > 0.0
 
 
@@ -88,7 +96,7 @@ def test_every_column_is_documented_and_written(equation_set):
         state, grid=grid, fft=fft, backend=backend, params=config, workspace=Workspace(grid, backend),
     )
     info = kz0_sectors.kz0_sector_column_info(module.KZ0_SECTOR_FIELDS)
-    assert len(info) == 5 * len(module.KZ0_SECTOR_FIELDS) + 5
+    assert len(info) == 9 * len(module.KZ0_SECTOR_FIELDS) + 9
     assert set(info) <= set(diagnostics)
     assert set(info) <= set(module.SCALAR_DIAGNOSTIC_INFO)
 
@@ -118,6 +126,22 @@ def test_single_mode_lands_in_its_sector(kx, ky, kz, sector):
     # The k_y split ignores k_z: the mode is at k_y = 0 or not, whatever its k_z.
     ky_column = "E_ky0_drho" if ky == 0 else "E_kyn0_drho"
     assert out[ky_column] == pytest.approx(total, rel=1e-12)
+    kx_column = "E_kx0_drho" if kx == 0 else "E_kxn0_drho"
+    assert out[kx_column] == pytest.approx(total, rel=1e-12)
+    # Every mode in this list has k_x or k_y nonzero.
+    assert out["E_kperpn0_drho"] == pytest.approx(total, rel=1e-12)
+
+
+def test_z_only_profile_is_the_kperp0_energy():
+    """Parseval: the k_perp = 0 energy of du_par is the energy of its (x, y)-averaged profile."""
+
+    module = rmhd_by_nokia_rho
+    config, backend, grid, fft = _context("inhomogeneous_rmhd_rho")
+    state = _random_state(module, backend, grid, fft)
+    out = _sectors(module, state, grid, backend, config)
+
+    profile = np.asarray(fft.c2r(state["du_par"])).mean(axis=(0, 1))
+    assert out["E_kperp0_du_par"] == pytest.approx(0.5 * np.mean(profile**2), rel=1e-10)
 
 
 @pytest.mark.parametrize("equation_set", sorted(EQUATION_MODULES))

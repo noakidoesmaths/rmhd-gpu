@@ -160,6 +160,74 @@ def project_out_kpar0(state: State, grid: Any) -> State:
     return state
 
 
+def project_out_ky0(state: State, grid: Any) -> State:
+    """Zero every Fourier mode with `k_y = 0` (all k_x, all k_z), in place.
+
+    In real space this subtracts the y-average from every field:
+    `f -> f - <f>_y`. It is a *control* option (`project_ky0` in `[runtime]`),
+    not a physical requirement: in the inhomogeneous equations every
+    background-gradient and gravity term carries a `dy`, so `k_y = 0` modes
+    never feel the background and the bracket of two `k_y = 0` modes vanishes.
+    Removing them shows which results depend on that sector.
+
+    Storage: `grid.ky` comes from `fftfreq` and has shape `(1, Ny, 1)`, so
+    `k_y = 0` is exactly index 0 on the y axis. The set of `k_y = 0` modes maps
+    onto itself under `k -> -k`, so zeroing all of it keeps the field real.
+    """
+
+    ky_nonzero = grid.ky != 0
+    for name in state.field_names:
+        state[name][...] *= ky_nonzero
+    return state
+
+
+def project_out_kx0(state: State, grid: Any) -> State:
+    """Zero every Fourier mode with `k_x = 0` (all k_y, all k_z), in place.
+
+    In real space this subtracts the x-average from every field:
+    `f -> f - <f>_x`. Like `project_ky0` this is a *control* option
+    (`project_kx0` in `[runtime]`). Unlike `k_y = 0`, the `k_x = 0` modes (apart
+    from `k_x = k_y = 0`) do feel the background gradients, which all act through
+    `dy`; the only thing they share with `k_y = 0` is that the bracket of two
+    `k_x = 0` modes vanishes.
+
+    Storage: `grid.kx` comes from `fftfreq` and has shape `(Nx, 1, 1)`, so
+    `k_x = 0` is exactly index 0 on the x axis. The set of `k_x = 0` modes maps
+    onto itself under `k -> -k`, so zeroing all of it keeps the field real.
+    """
+
+    kx_nonzero = grid.kx != 0
+    for name in state.field_names:
+        state[name][...] *= kx_nonzero
+    return state
+
+
+# The `[runtime]` switches and the projection each one turns on.
+MODE_PROJECTIONS = {
+    "project_kpar0": project_out_kpar0,
+    "project_ky0": project_out_ky0,
+    "project_kx0": project_out_kx0,
+}
+
+
+def mode_projections_enabled(params: Any) -> bool:
+    """True if any of `project_kpar0`, `project_ky0`, `project_kx0` is on."""
+
+    return any(bool(getattr(params, name, False)) for name in MODE_PROJECTIONS)
+
+
+def apply_mode_projections(state: State, grid: Any, params: Any) -> State:
+    """Apply every mode projection switched on in `params`, in place.
+
+    The projections only zero Fourier modes, so the order does not matter.
+    """
+
+    for name, project in MODE_PROJECTIONS.items():
+        if getattr(params, name, False):
+            project(state, grid)
+    return state
+
+
 def _build_exponential_factors(
     state: State,
     linear_ops: dict[str, Any],
@@ -427,9 +495,7 @@ def evolve_until(
     if getattr(params_obj, "fail_on_nonfinite", True):
         check_state_finite(current, current.backend, time=t, step=steps, context="time integration startup")
 
-    project_kpar0 = bool(getattr(params_obj, "project_kpar0", False))
-    if project_kpar0:
-        project_out_kpar0(current, grid)
+    apply_mode_projections(current, grid, params_obj)
 
     while t < t_final - 1.0e-15:
         if fixed_dt is not None:
@@ -466,8 +532,7 @@ def evolve_until(
                 ),
             )
             current = apply_forcing_kick(current, forcing_kick, inplace=True)
-        if project_kpar0:
-            project_out_kpar0(current, grid)
+        apply_mode_projections(current, grid, params_obj)
         t += dt
         dt_prev = dt
         steps += 1

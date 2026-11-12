@@ -1,4 +1,4 @@
-"""The k_par = 0 and ky = 0 plots: vis/plot_kpar0_energy.py, plot_kpar0_maps.py, plot_ky0_energy.py."""
+"""The sector-energy plots in vis/: plot_kpar0_energy, plot_kpar0_maps, plot_ky0_energy, plot_kperp0_energy."""
 import csv
 
 import numpy as np
@@ -156,6 +156,59 @@ def test_ky0_plot_from_the_csv_alone(tmp_path):
             writer.writerow([0.5 * i, i, *[0.1 + 0.01 * i * j for j in range(len(names))]])
     path = ky0_main([str(tmp_path / "scalar_diagnostics.csv")])
     assert path == tmp_path / "ky0_energy.png"
+    assert path.is_file() and path.stat().st_size > 0
+
+
+def test_kperp0_plot_from_snapshots_and_from_the_csv(tmp_path):
+    """vis/plot_kperp0_energy.py: k_perp = 0 plus k_perp != 0 is total_energy; z± have none at k_perp = 0."""
+    from vis.plot_kperp0_energy import main as kperp0_main
+
+    old_run = tmp_path / "old_run"
+    old_run.mkdir()
+    config, backend, grid, state = write_run_with_one_snapshot(old_run, seed=13)
+    columns = sector_columns_from_snapshots(old_run)
+    total_energy = get_equation_module(config.equation_set).total_energy(state, grid, backend, config)
+    assert sum(columns[f"E_kperp0_{f}"][0] + columns[f"E_kperpn0_{f}"][0] for f in FIELDS) == pytest.approx(
+        total_energy, rel=1e-12)
+    assert columns["E_kperp0_z_plus"][0] == 0.0 and columns["E_kperp0_z_minus"][0] == 0.0
+    assert kperp0_main([str(old_run)]) == old_run / "kperp0_energy.png"
+
+    new_run = tmp_path / "new_run"
+    new_run.mkdir()
+    names = [f"{prefix}_{field}" for field in FIELDS for prefix in ("E_kperp0", "E_kperpn0")]
+    with (new_run / "scalar_diagnostics.csv").open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["time", "step", *names])
+        for i in range(4):
+            writer.writerow([0.5 * i, i, *[0.1 + 0.01 * i * j for j in range(len(names))]])
+    path = kperp0_main([str(new_run), "--exclude-fields", "z_plus"])
+    assert path.is_file() and path.stat().st_size > 0
+
+
+def test_kx0_plot_from_snapshots_and_from_the_csv(tmp_path):
+    """vis/plot_kx0_energy.py: kx = 0 plus kx != 0 is total_energy, and the plot runs from either source."""
+    from vis.plot_kx0_energy import main as kx0_main
+
+    old_run = tmp_path / "old_run"
+    old_run.mkdir()
+    config, backend, grid, state = write_run_with_one_snapshot(old_run, seed=17)
+    columns = sector_columns_from_snapshots(old_run)
+    total_energy = get_equation_module(config.equation_set).total_energy(state, grid, backend, config)
+    assert sum(columns[f"E_kx0_{f}"][0] + columns[f"E_kxn0_{f}"][0] for f in FIELDS) == pytest.approx(
+        total_energy, rel=1e-12)
+    # The added cos(2x) density profile has kx = 2, so it is not in the kx = 0 part.
+    assert columns["E_kxn0_drho"][0] > columns["E_kz0_ky0_drho"][0] * (1 - 1e-12)
+    assert kx0_main([str(old_run)]) == old_run / "kx0_energy.png"
+
+    new_run = tmp_path / "new_run"
+    new_run.mkdir()
+    names = [f"{prefix}_{field}" for field in FIELDS for prefix in ("E_kx0", "E_kxn0")]
+    with (new_run / "scalar_diagnostics.csv").open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["time", "step", *names])
+        for i in range(4):
+            writer.writerow([0.5 * i, i, *[0.1 + 0.01 * i * j for j in range(len(names))]])
+    path = kx0_main([str(new_run), "--exclude-fields", "z_plus"])
     assert path.is_file() and path.stat().st_size > 0
 
 
