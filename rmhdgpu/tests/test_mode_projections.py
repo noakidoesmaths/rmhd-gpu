@@ -22,8 +22,8 @@ from rmhdgpu.equations import get_equation_module
 from rmhdgpu.initconds import build_initial_state
 from rmhdgpu.operators import inv_lap_perp
 from rmhdgpu.diagnostics import compressive_channels
-from rmhdgpu.run import main
-from rmhdgpu.runfile import resolve_run_settings
+from rmhdgpu.run import build_parser, main
+from rmhdgpu.runfile import cli_overrides_from_args, resolve_run_settings
 from rmhdgpu.state import State
 from rmhdgpu.steppers import (
     apply_mode_projections,
@@ -90,6 +90,26 @@ def test_projection_switch_is_read_from_the_runtime_section(tmp_path, switch):
         assert getattr(settings.config, name) is (name == switch)
     assert settings.resolved_document["runtime"][switch] is True
     assert getattr(resolve_run_settings(runfile_path=None, cwd=tmp_path).config, switch) is False
+
+
+def test_projection_switches_have_cli_flags_that_override_the_input_file(tmp_path):
+    input_file = tmp_path / "case.input"
+    input_file.write_text("[runtime]\nproject_kx0 = true\n", encoding="utf-8")
+    argv = [str(input_file), "--project-kpar0", "--project-ky0", "--no-project-kx0"]
+
+    args = build_parser().parse_args(argv)
+    settings = resolve_run_settings(runfile_path=input_file, cli_overrides=cli_overrides_from_args(args))
+
+    assert settings.config.project_kpar0 is True
+    assert settings.config.project_ky0 is True
+    assert settings.config.project_kx0 is False
+    assert settings.resolved_document["runtime"]["project_kx0"] is False
+
+    # Without the flags, the input-file value is kept.
+    args = build_parser().parse_args([str(input_file)])
+    settings = resolve_run_settings(runfile_path=input_file, cli_overrides=cli_overrides_from_args(args))
+    assert settings.config.project_kx0 is True
+    assert settings.config.project_ky0 is False
 
 
 @pytest.mark.parametrize("kind", ["random_spectrum", "random_spectrum_one_wave"])

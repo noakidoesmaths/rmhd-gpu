@@ -4,7 +4,7 @@
 # gradients some of the injected z+ also leaks linearly into z- and the
 # compressive fields. Try a few tau_F values to see which holds the amplitude.
 title = "Nokia rho controlled forcing: target amplitude"
-output_dir = "forcing_with_g/Krho0_3.0/ener_0.81_target_1.8_without_kyz0"
+output_dir = "forcing_with_g/Krho0_3.0/ener_1.0_target_2.0_without_k0"
 
 [equations]
 type = "inhomogeneous_rmhd_rho"
@@ -31,6 +31,7 @@ backend = "scipy_cpu"
 
 [runtime]
 progress_output_every = 100
+project_kx0 = true
 project_ky0 = true
 project_kpar0 = true
 
@@ -52,7 +53,7 @@ n_min_prl = 1.0
 n_max_prl = 3.0
 alpha = 4.67
 alpha_prl = 1.67
-init_energy = 0.81
+init_energy = 1.0
 seed = 1
 exclude_kpar0 = false
 
@@ -81,7 +82,7 @@ control = "target"
 target_scope = "branch_total"
 target_basis = "elsasser"
 target_quantity = "rms"
-target_value = 1.8
+target_value = 2.0
 tau_F = 0.1
 startup_energy_fraction = 1.0
 

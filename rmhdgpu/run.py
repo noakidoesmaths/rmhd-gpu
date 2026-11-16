@@ -148,6 +148,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fail-on-nonfinite", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     parser.add_argument("--dealias", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     parser.add_argument("--dealias-mode", default=argparse.SUPPRESS)
+    # Mode-projection controls, same as [runtime] project_kpar0/ky0/kx0 in the input file.
+    parser.add_argument(
+        "--project-kpar0",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Zero every k_z = 0 mode at startup and after every step.",
+    )
+    parser.add_argument(
+        "--project-ky0",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Zero every k_y = 0 mode at startup and after every step.",
+    )
+    parser.add_argument(
+        "--project-kx0",
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Zero every k_x = 0 mode at startup and after every step.",
+    )
 
     parser.add_argument("--vA", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--cs2-over-vA2", dest="cs2_over_vA2", type=float, default=argparse.SUPPRESS)
