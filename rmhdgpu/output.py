@@ -29,6 +29,9 @@ from rmhdgpu.diagnostics.fullfield import extract_full_fields
 SCALAR_DIAGNOSTICS_FILENAME = "scalar_diagnostics.csv"
 SPECTRA_DIAGNOSTICS_FILENAME = "spectra.csv"
 SPECTRA_PRL_DIAGNOSTICS_FILENAME = "spectra_prl.csv"
+# Perpendicular-average profiles <.>_perp(z), long format with a `z` column;
+# written with the spectra by equation modules that provide `z_profiles`.
+Z_PROFILES_FILENAME = "z_profiles.csv"
 FULLFIELD_DIAGNOSTICS_DIRNAME = "fullfields"
 OUTPUT_TIME_TOLERANCE = 1.0e-15
 

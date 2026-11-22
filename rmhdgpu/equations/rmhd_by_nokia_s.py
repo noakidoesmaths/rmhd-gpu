@@ -47,6 +47,7 @@ import numpy as np
 
 from rmhdgpu.diagnostics import compressive_channels as channels
 from rmhdgpu.diagnostics import kz0_sectors
+from rmhdgpu.diagnostics.z_profiles import energy_z_profiles
 from rmhdgpu.diagnostics.budget import flatten_conserved_quantity_budgets
 from rmhdgpu.diagnostics.scalar import STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO
 from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
@@ -70,6 +71,7 @@ KZ0_SECTOR_FIELDS = ("z_plus", "z_minus", "du_par", "db_par", "s")
 SCALAR_DIAGNOSTIC_INFO = {
     **STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO,
     **channels.CHANNEL_SCALAR_DIAGNOSTIC_INFO,
+    **channels.RESERVOIR_SCALAR_DIAGNOSTIC_INFO,
     **kz0_sectors.kz0_sector_column_info(KZ0_SECTOR_FIELDS),
     "alfvenic_energy": "Alfvenic part of the S09 energy: 0.5 <|grad phi|^2 + |grad psi|^2>.",
     "dupar_energy": "Unweighted kinetic parallel energy proxy: 0.5 <dupar^2>.",
@@ -188,6 +190,7 @@ def channel_fields(state: State, grid: Any, params: Any) -> channels.ChannelFiel
         du_par_hat=state["du_par"],
         db_par_hat=state["db_par"],
         drho_hat=derive_drho_hat(state["s"], state["db_par"], params),
+        s_hat=state["s"],
     )
 
 def derived_output_fields(state: State, grid: Any, fft: Any, backend: Any) -> dict[str, Any]:
@@ -215,6 +218,55 @@ def derived_output_fields(state: State, grid: Any, fft: Any, backend: Any) -> di
         dyf = fft.c2r(dy(f_hat, grid))
         fields[name] = backend.to_numpy(xp.sqrt(dxf ** 2 + dyf ** 2))
     return fields
+
+
+def z_profiles(
+    state: State,
+    grid: Any,
+    fft: Any,
+    backend: Any,
+    params: Any,
+    linear_ops: dict[str, Any] | None = None,
+    workspace: Any | None = None,
+    dealias_mask: Any | None = None,
+) -> dict[str, np.ndarray]:
+    """Return the perpendicular-average energy profiles written to z_profiles.csv.
+
+    With `linear_ops` the local dissipation profiles are included. With
+    `linear_ops` and `workspace` as well, the right-hand side is evaluated
+    once more so every energy also gets a closed local budget, d_t W(z) and
+    its terms (see `rmhdgpu.diagnostics.z_profiles`).
+    """
+
+    fields = channel_fields(state, grid, params)
+    damping_rates = rates = brackets = None
+    if linear_ops is not None:
+        damping_rates = {
+            **_reservoir_damping_rates(state, linear_ops),
+            "phi": -linear_ops["omega"] * fields.phi_hat,
+            "psi": -linear_ops["psi"] * fields.psi_hat,
+        }
+    if linear_ops is not None and workspace is not None:
+        # Full rate of change without forcing: the ideal right-hand side plus damping.
+        rate = ideal_rhs(state, grid, fft, workspace, params, dealias_mask=dealias_mask)
+        for name in FIELD_NAMES:
+            rate[name][...] -= linear_ops[name] * state[name]
+        rates = {
+            "phi": derive_phi_hat(rate["omega"], grid),
+            "psi": rate["psi"],
+            "du_par": rate["du_par"],
+            "db_par": rate["db_par"],
+            "s": rate["s"],
+        }
+        # poisson_bracket returns a shared workspace buffer, so copy each result.
+        brackets = {
+            "psi_db": poisson_bracket(fields.psi_hat, fields.db_par_hat, grid, fft, workspace, mask=dealias_mask).copy(),
+            "psi_du": poisson_bracket(fields.psi_hat, fields.du_par_hat, grid, fft, workspace, mask=dealias_mask).copy(),
+        }
+    return energy_z_profiles(
+        fields, grid, fft, backend, derived_parameters(params),
+        damping_rates=damping_rates, rates=rates, brackets=brackets,
+    )
 
 
 def characteristic_speeds(params: Any) -> list[float]:
@@ -604,6 +656,16 @@ def total_energy_dissipation_rhs(
     return modal_average(density_hat, grid, backend)
 
 
+def _reservoir_damping_rates(state: State, linear_ops: dict[str, Any]) -> dict[str, Any]:
+    """Return the rate each reservoir field changes at under damping alone."""
+
+    return {
+        "du_par": -linear_ops["du_par"] * state["du_par"],
+        "db_par": -linear_ops["db_par"] * state["db_par"],
+        "s": -linear_ops["s"] * state["s"],
+    }
+
+
 def compute_conserved_quantity_budgets(
     state: State,
     *,
@@ -612,8 +674,17 @@ def compute_conserved_quantity_budgets(
     params: Any,
     linear_ops: dict[str, Any] | None = None,
     extra_rhs_terms: dict[str, dict[str, float]] | None = None,
+    fft: Any | None = None,
+    workspace: Any | None = None,
+    dealias_mask: Any | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Return conserved-quantity values plus named signed RHS contributions."""
+    """Return conserved-quantity values plus named signed RHS contributions.
+
+    Always returns `total_energy`, `w_plus` and `w_minus`. With `fft` and
+    `workspace` it also returns the compressive reservoirs `w_par_u`,
+    `w_par_b`, `w_p` and `w_s` (see `channels.reservoir_budgets`), whose
+    nonlinear exchange term needs one Poisson bracket.
+    """
 
     p = derived_parameters(params)
     fields = channel_fields(state, grid, params)
@@ -645,9 +716,24 @@ def compute_conserved_quantity_budgets(
         }
     }
     budgets.update(channels.elsasser_budgets(fields, fluxes, grid, backend, linear_ops=linear_ops))
+    if fft is not None and workspace is not None:
+        budgets.update(
+            channels.reservoir_budgets(
+                fields,
+                grid,
+                backend,
+                p,
+                fft=fft,
+                workspace=workspace,
+                dealias_mask=dealias_mask,
+                damping_rates=None if linear_ops is None else _reservoir_damping_rates(state, linear_ops),
+            )
+        )
     if extra_rhs_terms is not None:
-        for quantity_name in ("w_plus", "w_minus"):
-            budgets[quantity_name]["rhs_terms"].update(
+        for quantity_name, payload in budgets.items():
+            if quantity_name == "total_energy":
+                continue
+            payload["rhs_terms"].update(
                 {
                     name: float(value)
                     for name, value in extra_rhs_terms.get(quantity_name, {}).items()
@@ -669,13 +755,13 @@ def conserved_quantity_values(
     conserved quantity, not just `total_energy`.
     """
 
-    z_plus_hat, z_minus_hat = channels.elsasser_potentials(
-        derive_phi_hat(state["omega"], grid), state["psi"],
-    )
+    fields = channel_fields(state, grid, params)
+    z_plus_hat, z_minus_hat = channels.elsasser_potentials(fields.phi_hat, fields.psi_hat)
     return {
         "total_energy": total_energy(state, grid, backend, params),
         "w_plus": channels.elsasser_energy(z_plus_hat, grid, backend),
         "w_minus": channels.elsasser_energy(z_minus_hat, grid, backend),
+        **channels.reservoir_values(fields, grid, backend, derived_parameters(params)),
     }
 
 
@@ -730,6 +816,8 @@ def compute_equation_scalar_diagnostics(
         params=params,
         linear_ops=linear_ops,
         extra_rhs_terms=extra_rhs_terms,
+        fft=fft,
+        workspace=workspace,
     )
     for quantity_name, payload in budgets.items():
         rhs_terms = payload.setdefault("rhs_terms", {})
@@ -764,12 +852,23 @@ from rmhdgpu.forcing_fields import (
     standard_apply_gain as forcing_apply_gain,
     standard_seed_branch as forcing_seed_branch,
     standard_characteristic_speed as forcing_characteristic_speed,
-    standard_budget_work as forcing_budget_work,
     vorticity_shell_density as forcing_shell_density,
     vorticity_perpendicular_energy as forcing_perpendicular_energy,
     vorticity_perpendicular_shell_energy as forcing_perpendicular_shell_energy,
     vorticity_measurement as forcing_measurement,
 )
+
+
+def forcing_budget_work(event):
+    """Book one controlled-forcing kick against every tracked energy it changes.
+
+    The controller adds to exactly one branch potential, phi - psi for `plus`
+    or phi + psi for `minus` (see `forcing_fields.add_potential_increment`),
+    so its work `work_z` changes that branch's W± and the total energy, and
+    nothing else: the other branch and the compressive fields are untouched.
+    """
+
+    return {"total_energy": event["work_z"], f"w_{event['branch']}": event["work_z"]}
 
 
 def forcing_fields(config):

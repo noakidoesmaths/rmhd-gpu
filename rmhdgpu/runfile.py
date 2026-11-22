@@ -51,9 +51,10 @@ _SECTION_KEYS = {
         "use_variable_dt",
         "t_out_scal",
         "t_out_spec",
+        "t_out_prof",
         "t_out_full",
     },
-    "output": {"t_out_scal", "t_out_spec", "t_out_full"},
+    "output": {"t_out_scal", "t_out_spec", "t_out_prof", "t_out_full"},
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
     "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "project_kpar0", "project_ky0", "project_kx0", "dealias", "dealias_mode"},
     "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
@@ -87,8 +88,8 @@ _AUTO_DISSIPATION_KEYS = {
 _SECTION_TO_CONFIG_KEYS = {
     "equations": {"equation_set", "equation_mode"},
     "grid": {"Nx", "Ny", "Nz", "Lx", "Ly", "Lz"},
-    "time": {"tmax", "dt_init", "dt_min", "dt_max", "cfl_number", "use_variable_dt", "t_out_scal", "t_out_spec", "t_out_full"},
-    "output": {"t_out_scal", "t_out_spec", "t_out_full"},
+    "time": {"tmax", "dt_init", "dt_min", "dt_max", "cfl_number", "use_variable_dt", "t_out_scal", "t_out_spec", "t_out_prof", "t_out_full"},
+    "output": {"t_out_scal", "t_out_spec", "t_out_prof", "t_out_full"},
     "backend": {"backend", "fft_workers", "real_dtype", "complex_dtype"},
     "runtime": {"runtime_check_every", "progress_output_every", "fail_on_nonfinite", "project_kpar0", "project_ky0", "project_kx0", "dealias", "dealias_mode"},
     "physics": {"vA", "cs2_over_vA2", "N2", "g", "K_p0", "K_rho0"},
@@ -303,6 +304,7 @@ def cli_overrides_from_args(args: argparse.Namespace) -> dict[str, Any]:
     output_map = {
         "t_out_scal": "t_out_scal",
         "t_out_spec": "t_out_spec",
+        "t_out_prof": "t_out_prof",
         "t_out_full": "t_out_full",
     }
     for cli_key, config_key in output_map.items():
@@ -466,6 +468,7 @@ def _resolved_document(
             "project_kx0": config.project_kx0,
             "t_out_scal": config.t_out_scal,
             "t_out_spec": config.t_out_spec,
+            "t_out_prof": config.t_out_prof,
             "t_out_full": config.t_out_full,
             "dealias": config.dealias,
             "dealias_mode": config.dealias_mode,
@@ -511,6 +514,7 @@ def _resolved_document(
         "output": {
             "t_out_scal": config_values["t_out_scal"],
             "t_out_spec": config_values["t_out_spec"],
+            "t_out_prof": config_values["t_out_prof"],
             "t_out_full": config_values["t_out_full"],
         },
         "backend": {

@@ -162,6 +162,10 @@ class Config:
     project_kx0: bool = False
     t_out_scal: float = 0.1
     t_out_spec: float = 0.0
+    # Cadence of z_profiles.csv (equation sets with a `z_profiles` hook).
+    # None means "same as t_out_spec"; a separate value lets the profiles be
+    # saved finely without crowding the spectra.
+    t_out_prof: float | None = None
     t_out_full: float = 0.0
     dealias: bool = True
     dealias_mode: str = "two_thirds"
@@ -226,6 +230,9 @@ class Config:
 
         for name in ("t_out_scal", "t_out_spec", "t_out_full"):
             setattr(self, name, _normalize_output_cadence(name, getattr(self, name)))
+        if self.t_out_prof is None:
+            self.t_out_prof = self.t_out_spec
+        self.t_out_prof = _normalize_output_cadence("t_out_prof", self.t_out_prof)
 
         if self.dt_min is not None:
             self.dt_min = float(self.dt_min)
@@ -507,4 +514,8 @@ def default_config_dict() -> dict[str, Any]:
 def default_config_dict_for_equation(equation_set: str) -> dict[str, Any]:
     """Return resolved default configuration values for one equation set."""
 
-    return config_to_dict(Config(equation_set=equation_set))
+    values = config_to_dict(Config(equation_set=equation_set))
+    # Unset means "follow t_out_spec"; keep it unset here so an input file that
+    # only sets t_out_spec still gets z-profiles at that cadence.
+    values["t_out_prof"] = None
+    return values

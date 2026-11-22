@@ -36,6 +36,7 @@ from rmhdgpu.output import (
     SCALAR_DIAGNOSTICS_FILENAME,
     SPECTRA_DIAGNOSTICS_FILENAME,
     SPECTRA_PRL_DIAGNOSTICS_FILENAME,
+    Z_PROFILES_FILENAME,
     FullFieldHDF5Writer,
     ScalarDiagnosticsWriter,
     SpectraDiagnosticsWriter,
@@ -140,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cfl-number", dest="cfl_number", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--t-out-scal", dest="t_out_scal", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--t-out-spec", dest="t_out_spec", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--t-out-prof", dest="t_out_prof", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--t-out-full", dest="t_out_full", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--use-variable-dt", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
 
@@ -250,6 +252,7 @@ def _startup_metadata(settings: RunSettings, output_dir: Path) -> dict[str, Any]
         "output_cadences": {
             "scalar": settings.config.t_out_scal,
             "spectra": settings.config.t_out_spec,
+            "z_profiles": settings.config.t_out_prof,
             "full_field": settings.config.t_out_full,
         },
         "hostname": socket.gethostname(),
@@ -349,6 +352,7 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                 "output_cadences": {
                     "scalar": config.t_out_scal,
                     "spectra": config.t_out_spec,
+                    "z_profiles": config.t_out_prof,
                     "full_field": config.t_out_full,
                 },
                 "dissipation_mode": config.auto_dissipation.mode,
@@ -433,6 +437,15 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
             if output_cadence_enabled(config.t_out_spec)
             else None
         )
+        # Equation modules with a `z_profiles` hook also write perpendicular-average
+        # profiles <.>_perp(z), in the spectra's long format, every t_out_prof
+        # (which defaults to t_out_spec).
+        z_profiles_fn = getattr(equation_module, "z_profiles", None)
+        z_profiles_writer = (
+            SpectraDiagnosticsWriter(output_dir / Z_PROFILES_FILENAME, k_column="z")
+            if z_profiles_fn is not None and output_cadence_enabled(config.t_out_prof)
+            else None
+        )
         fullfield_writer = None
         if output_cadence_enabled(config.t_out_full):
             fullfield_writer = FullFieldHDF5Writer(
@@ -447,6 +460,7 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
         steps = 0
         next_scalar_output = initial_output_time(config.t_out_scal)
         next_spectra_output = initial_output_time(config.t_out_spec)
+        next_profile_output = initial_output_time(config.t_out_prof)
         next_fullfield_output = initial_output_time(config.t_out_full)
         dt_last = config.dt_init
         forcing_rng = backend.random_generator(config.forcing_seed) if config.use_forcing and controlled_forcing is None else None
@@ -466,6 +480,9 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                 backend=backend,
                 params=config,
                 linear_ops=linear_ops,
+                fft=fft,
+                workspace=workspace,
+                dealias_mask=mask,
             )
             return {
                 quantity_name: {
@@ -549,7 +566,7 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                     rhs_terms[term_name] = 0.0
 
         def _write_due_diagnostics(*, dt_value: float) -> None:
-            nonlocal next_scalar_output, next_spectra_output, next_fullfield_output
+            nonlocal next_scalar_output, next_spectra_output, next_profile_output, next_fullfield_output
 
             if scalar_writer is not None and output_due(time=t, next_output_time=next_scalar_output, tmax=config.tmax):
                 row = _diagnostics_row(
@@ -615,6 +632,21 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                 next_spectra_output = advance_output_time(
                     next_output_time=next_spectra_output,
                     cadence=config.t_out_spec,
+                    current_time=t,
+                )
+
+            if z_profiles_writer is not None and output_due(
+                time=t, next_output_time=next_profile_output, tmax=config.tmax,
+            ):
+                z_profiles_writer.write_spectra(
+                    time=t, step=steps, spectra=z_profiles_fn(
+                        state, grid, fft, backend, config,
+                        linear_ops=linear_ops, workspace=workspace, dealias_mask=mask,
+                    ),
+                )
+                next_profile_output = advance_output_time(
+                    next_output_time=next_profile_output,
+                    cadence=config.t_out_prof,
                     current_time=t,
                 )
 
@@ -788,6 +820,8 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                 spectra_writer.close()
             if spectra_prl_writer is not None:
                 spectra_prl_writer.close()
+            if z_profiles_writer is not None:
+                z_profiles_writer.close()
             if fullfield_writer is not None:
                 fullfield_writer.close()
 
@@ -809,6 +843,8 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
             summary["scalar_diagnostics_csv"] = str(scalar_csv_path)
         if output_cadence_enabled(config.t_out_spec):
             summary["spectra_csv"] = str(spectra_csv_path)
+        if z_profiles_writer is not None:
+            summary["z_profiles_csv"] = str(output_dir / Z_PROFILES_FILENAME)
         if output_cadence_enabled(config.t_out_full):
             summary["fullfields_dir"] = str(fullfield_output_dir)
         logger.event("run complete", summary)

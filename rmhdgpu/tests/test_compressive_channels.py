@@ -46,6 +46,7 @@ PHYSICS = {
 # The channel columns, in the order `channel_scalar_diagnostics` writes them.
 CHANNEL_COLUMNS = [
     "w_plus", "w_minus", "k_perp_plus", "k_perp_minus", "k_prl_plus", "k_prl_minus",
+    "k_prl_rms_plus", "k_prl_rms_minus",
     "w_plus_align", "w_minus_align", "u_perp_rms", "b_perp_rms", "V_rho_x", "V_psi_x", "q_dcf", "q_ccr_source",
     "N_sq", "vA", "acr_B", "acr_g", "acr_th",
 ]

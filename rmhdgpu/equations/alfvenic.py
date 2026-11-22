@@ -404,6 +404,9 @@ def compute_conserved_quantity_budgets(
     params: Any,
     linear_ops: dict[str, Any] | None = None,
     extra_rhs_terms: dict[str, dict[str, float]] | None = None,
+    fft: Any | None = None,  # unused here; the run driver passes it to every module
+    workspace: Any | None = None,  # unused here
+    dealias_mask: Any | None = None,  # unused here
 ) -> dict[str, dict[str, Any]]:
     """Return total energy plus named signed RHS contributions."""
 

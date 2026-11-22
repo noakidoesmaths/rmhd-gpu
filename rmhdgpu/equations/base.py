@@ -9,7 +9,10 @@ should provide:
 - `build_dissipation_operators(grid, params, ...)`: return diagonal damping data
 - `total_energy(state, ...)`: return the equation-set energy diagnostic
 - `compute_conserved_quantity_budgets(state, ...)`: optionally return
-  conserved-quantity values plus named non-conservative RHS terms
+  conserved-quantity values plus named non-conservative RHS terms. The run
+  driver passes `fft`, `workspace` and `dealias_mask` as keywords, for budget
+  terms that need a Poisson bracket; modules that do not need them accept and
+  ignore them
 - Alfvénic equation sets should evolve `psi` plus either `phi` directly or
   `omega` with a `derive_phi_hat(omega_hat, grid)` helper. This allows generic
   Elsasser forcing and diagnostics without equation-set-specific branching.

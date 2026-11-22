@@ -115,6 +115,7 @@ Diagnostics are controlled independently through the `[output]` section:
 
 - `t_out_scal`: scalar diagnostics cadence
 - `t_out_spec`: spectra cadence
+- `t_out_prof`: `z_profiles.csv` cadence (inhomogeneous sets); defaults to `t_out_spec`, so set it on its own to save profiles finely without crowding the spectra
 - `t_out_full`: full-field cadence
 
 Cadences are in simulation time units:
@@ -126,6 +127,7 @@ Outputs are:
 
 - `scalar_diagnostics.csv`: one row per output time, with `time`, `step`, scalar quantities, and saved budget terms
 - `spectra.csv`: tidy/long CSV with columns `time`, `step`, `quantity`, `kperp`, `value`
+- `z_profiles.csv` (inhomogeneous sets only, written every `t_out_prof`): the same long format with a `z` column, holding perpendicular averages `<.>_perp(z)` of the energy reservoirs and their local budget terms. For each of the six energies it also has `<energy>_dt`, the instantaneous `d_t W(z)` from the right-hand side, and `<energy>_<term>` for every term (including `w_plus_transport = -vA d_z W+`), so each local budget can be checked at every z
 - `fullfields/fullfield_0001.h5`, `fullfield_0002.h5`, ...: one HDF5 snapshot per output time
 
 Scalar diagnostics are split into generic per-field columns such as
@@ -144,6 +146,26 @@ Likewise by `k_x` alone: `E_kx0_<field>` and `E_kxn0_<field>`, with totals
 The same is written for `k_perp = 0` (`k_x = k_y = 0`, the z-only profiles):
 `E_kperp0_<field>` and `E_kperpn0_<field>`, with totals `E_kperp0 + E_kperpn0 = total_energy`.
 `z_plus` and `z_minus` have no energy at `k_perp = 0`.
+
+The inhomogeneous sets also split the energy into six reservoirs, each with
+its own budget (`<name>`, `<name>_rhs_<term>`, `<name>_rhs_total`):
+
+| Column | Reservoir | Budget terms |
+|---|---|---|
+| `w_plus`, `w_minus` | `W± = <\|z±\|^2>/4` | `buoyancy` = `(g/2)<drho z±_x>`, `dissipation`, `forcing` |
+| `w_par_u` | `<du_par^2>/2` | `drive_KB`, `exchange_lin`, `exchange_nl`, `dissipation`, `forcing` |
+| `w_par_b` | `vA^2 <db_par^2>/2` (magnetic pressure) | `drive_KBKp`, `exchange_lin`, `exchange_nl`, `dissipation`, `forcing` |
+| `w_p` | `w_par_b / chi` (thermal pressure) | the `w_par_b` terms times `1/chi` |
+| `w_s` | `cs^2/(gamma^2(gamma-1)) <s^2>/2` (entropy) | `drive_Ks`, `dissipation`, `forcing` |
+
+The six add up to `total_energy` (for the rho set only when `vA = 1`). The
+`exchange_*` terms move energy between `w_par_u` and `w_par_b + w_p` and cancel
+in their sum; the `drive_*` and `buoyancy` terms add up to the `acr_*` channels.
+The box averages lose the `vA d_z W±` transport terms, which average to zero
+in a periodic box; `z_profiles.csv` keeps them. `k_prl_rms_plus` is the rms
+`k_par` of `z+`, so `vA k_prl_rms_plus w_plus` is the size of that term. The
+exact definitions are in `rmhdgpu/diagnostics/compressive_channels.py` and
+`rmhdgpu/diagnostics/z_profiles.py`.
 
 The scalar CSV also carries saved conserved-quantity budget columns. For the
 current total-energy budget these include:
@@ -618,6 +640,13 @@ Useful notes:
 - `plot_zplus_heating.py` compares the two ways `z+` loses energy with their closure estimates, side by side: DCF (measured `q_dcf` against Eq. (69), `-g F_rho eta_turb`) and CCR (the `W+` dissipation rate against Eq. (75), `|g F_rho| l_perp z+_x / 4`). It prints the window means, each channel's share of the measured `z+` loss and `W+ z-_rms / l_perp` (CCR with the measured `z-`), and warns when `D+` cannot be read as CCR heating (`z-` forced, or more than 10% of it in the forced shell), e.g. `python vis/plot_zplus_heating.py RUN_DIRECTORY --tmin 100`
 - `plot_slaved_gradient_scan.py` saves one figure per compressive field (`slaved_gradient_scan_drho.png` and so on) of saturated RMS against background drive across a scan; `--fields` picks which to draw
 - `plot_kpar0_energy.py` shows how much of an inhomogeneous run's energy sits at `k_par = 0`, against time: the share of the total energy in waves (`k_par != 0`), 2D structures (`k_par = 0, ky != 0`) and mean profiles `<f>(x)` (`k_par = 0, ky = 0`), then each field's share in the mean profiles and in the whole `k_par = 0` plane. It reads the `E_kz*` columns of `scalar_diagnostics.csv`; runs made before those columns existed are summed from their `fullfields/` snapshots instead. `--exclude-fields z_plus` leaves the forced wave out of the total, e.g. `python vis/plot_kpar0_energy.py RUN_DIRECTORY`
+- `plot_energy_reservoirs.py` plots the six energy reservoirs (`W+`, `W-`, `W_par^u`, `W_par^B`, `W^p`, `W_s`) of an inhomogeneous run against time, and their shares of the total, e.g. `python vis/plot_energy_reservoirs.py RUN_DIRECTORY`. `plot_budget.py CSV --quantity w_par_u` shows one reservoir's budget term by term
+- `plot_energy_budgets.py` plots the budget of each reservoir against time, one panel per reservoir: every saved term, the measured `d_t W` and the residual (which should sit at zero). `--average N` merges every N output intervals to smooth noisy forcing, the projection term is not drawn by default (`--hide` sets which terms are left off; the residual still counts them), and `--separate` also writes `budget_<reservoir>.png` with `W(t)` above its budget, e.g. `python vis/plot_energy_budgets.py RUN_DIRECTORY --average 5 --separate`
+- `plot_energy_terms.py` shows how much each budget term contributes to each reservoir: one bar per term, averaged over a time window, labelled with its share of the reservoir's gains or losses, with block-average error bars (`--blocks`) and the budget residual in each title; `--hide` leaves terms off; it also writes `energy_terms.csv`, e.g. `python vis/plot_energy_terms.py RUN_DIRECTORY --tmin 5`
+- `plot_z_rms_terms.py` measures how big each term of the local-in-z budgets is (`W+(z)`, `W-(z)`, the slow-mode energies and `W_s(z)`), as its rms over `z` next to its box average. The transport terms `vA d_z W±` average to zero over the box, so their rms is the only measure of their size. Reads `z_profiles.csv` and writes `z_rms_terms.csv`, e.g. `python vis/plot_z_rms_terms.py RUN_DIRECTORY --tmin 5`
+- `plot_dcf_ccr_acr.py` plots the three heating channels of the paper against time from the interval-averaged budget columns: `Q_DCF = -(g/2)<drho z+_x>` (buoyancy draining z+), `Q_CCR = -w_plus_rhs_dissipation` (the z+ cascade/dissipation, with the reflection rate `(g/2)<drho z-_x>` that creates z- drawn dashed) and `Q_ACR = Y_B + Y_g` (in this box `Y_U` and the divergence term vanish; the thermal part `Y_th` is not heating and is not drawn; forcing is not drawn either). Each channel's window mean is in the legend and a CSV; `--average N` smooths, e.g. `python vis/plot_dcf_ccr_acr.py RUN_DIRECTORY --tmin 100 --average 10`
+- `plot_local_budget_signs.py` shows the local budgets of `w_plus`, `w_minus`, `w_par_u`, `w_par_b` and `w_s`, one figure each (`--energy` picks others; `all` adds `w_p`): one panel per term showing, at each saved time, what the term adds and removes: `<max(T,0)>_z` (gain), `<min(T,0)>_z` (loss) and their sum (net, the box-averaged term). Terms that are exactly zero get no row, e.g. `python vis/plot_local_budget_signs.py RUN_DIRECTORY --tmin 100 --tmax 150`
+- `plot_z_profiles.py` draws space-time maps `(t, z)` of the `z_profiles.csv` profiles, with lines `z = z0 ± vA t` on `w_plus`/`w_minus` to show parallel transport; `--subtract-mean` keeps only the z-structure, e.g. `python vis/plot_z_profiles.py RUN_DIRECTORY --quantities w_plus w_minus slow_flux`
 - `plot_kpar0_maps.py` shows where the `drho` energy sits in the `(kx, ky)` plane at one snapshot (`--index`, default the last), for `k_par = 0` and for `k_par != 0`, e.g. `python vis/plot_kpar0_maps.py RUN_DIRECTORY`
 - `plot_kx0_energy.py` compares the energy at `kx = 0` (no variation along `x`, the direction of the background gradients) with the energy at `kx != 0`, from the `E_kx0_*` / `E_kxn0_*` columns, e.g. `python vis/plot_kx0_energy.py RUN_DIRECTORY`
 - `plot_ky0_energy.py` compares the energy at `ky = 0` with the energy at `ky != 0` against time, counting every `k_par` (so a forced `ky = 0` wave counts as `ky = 0`): the share of the total energy in each, and each field's share at `ky = 0`. It reads the `E_ky0_*` / `E_kyn0_*` columns of `scalar_diagnostics.csv`; runs made before those columns existed are summed from their `fullfields/` snapshots instead (`--every N` uses every Nth one), e.g. `python vis/plot_ky0_energy.py RUN_DIRECTORY`

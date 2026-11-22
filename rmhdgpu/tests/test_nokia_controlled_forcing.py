@@ -76,6 +76,11 @@ def test_nokia_controlled_forcing_closes_energy_budget(tmp_path, equation_name, 
         dt = float(after["time"]) - float(before["time"])
         d_energy = float(after["total_energy"]) - float(before["total_energy"])
         assert d_energy == pytest.approx(float(after["total_energy_rhs_total"]) * dt, abs=1e-12)
+        # The forced branch's own budget closes too: its forcing term is the controller's work.
+        d_w_plus = float(after["w_plus"]) - float(before["w_plus"])
+        assert d_w_plus == pytest.approx(float(after["w_plus_rhs_total"]) * dt, abs=1e-12)
+        assert float(after["w_plus_rhs_forcing"]) == pytest.approx(float(after["total_energy_rhs_forcing"]), abs=1e-14)
+        assert float(after["w_minus_rhs_forcing"]) == 0.0
         booked_forcing += float(after["total_energy_rhs_forcing"]) * dt
     assert booked_forcing == pytest.approx(work, rel=1e-9)
 

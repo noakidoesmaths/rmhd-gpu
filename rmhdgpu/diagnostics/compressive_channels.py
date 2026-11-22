@@ -28,7 +28,7 @@ The compressive fluctuations that z+ stirs up act in three ways (paper Fig. 1):
     DCF  direct compressive feedback: they act back on z+.
          q_dcf = -(d_t W+)|_buoyancy, positive while buoyancy drains z+.
     CCR  compressively catalyzed reflection: they create z-.
-         q_ccr_source = 
+         q_ccr_source = -(d_t W-)|_buoyancy, so it is NEGATIVE while buoyancy
          creates z-, which it does in almost every row of a z+ run.
     ACR  Alfven-catalyzed relaxation: they release background free energy.
          acr_B + acr_g + acr_th = Y, the source term of the total energy.
@@ -45,7 +45,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from rmhdgpu.fourier_diagnostics import modal_average, modal_inner_product_average
-from rmhdgpu.operators import dy
+from rmhdgpu.operators import dy, dz, poisson_bracket
 
 
 # Columns written by `channel_scalar_diagnostics`, in the order they are written.
@@ -62,6 +62,12 @@ CHANNEL_SCALAR_DIAGNOSTIC_INFO = {
         "Called w_plus_kprl before 2026-10-08."
     ),
     "k_prl_minus": "Mean |k_par| of z-, as k_prl_plus. Called w_minus_kprl before 2026-10-08.",
+    "k_prl_rms_plus": (
+        "rms k_par of z+, sqrt(sum k_par^2 E+ / sum E+), so <|d_z z+|^2> = k_prl_rms_plus^2 <|z+|^2>. "
+        "vA k_prl_rms_plus W+ is the size of the vA d_z W+ term; it is a scale estimate, not the "
+        "z-profile gradient (that is in z_profiles.csv)."
+    ),
+    "k_prl_rms_minus": "rms k_par of z-, as k_prl_rms_plus.",
     "w_plus_align": "rms(z+_x)/rms(|z+|): share of z+ along the gradient direction x; 1/sqrt(2) if isotropic. Eq. (47) factor.",
     "w_minus_align": "rms(z-_x)/rms(|z-|).",
     "u_perp_rms": "rms(|u_perp|) = sqrt(<|grad_perp phi|^2>); divide by vA for delta u_perp/vA.",
@@ -81,6 +87,10 @@ CHANNEL_SCALAR_DIAGNOSTIC_INFO = {
         "DCF heating rate -(d_t W+)|_buoyancy = -(g/2) <drho z+_x>, instantaneous; "
         "positive while buoyancy drains z+."
     ),
+    "q_ccr_source": (
+        "-(d_t W-)|_buoyancy = -(g/2) <drho z-_x>, instantaneous; negative while buoyancy "
+        "creates z- (the CCR source)."
+    ),
     "N_sq": "Run constant: Brunt-Vaisala frequency squared, N^2 = -g * F_rho. Positive is stable.",
     "vA": "Run constant: Alfven speed, echoed so plotting scripts need only the CSV.",
     "acr_B": "Instantaneous ACR channel exchanging with background magnetic free energy (the paper's Y_B), -vA^2 K_b0 V_psi_x.",
@@ -96,7 +106,9 @@ class ChannelFields:
     """The Fourier fields every channel diagnostic is built from.
 
     `phi_hat` is the stream function and `psi_hat` the flux function. The s
-    equation set derives `drho_hat` from s and db_par before building this.
+    equation set derives `drho_hat` from s and db_par, and the rho set derives
+    `s_hat` from drho and db_par, so both fields are always available. `s_hat`
+    is only needed by the energy-reservoir budgets.
     """
 
     phi_hat: Any
@@ -104,6 +116,7 @@ class ChannelFields:
     du_par_hat: Any
     db_par_hat: Any
     drho_hat: Any
+    s_hat: Any = None
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +188,24 @@ def elsasser_kprl_mean(f_hat: Any, grid: Any, backend: Any) -> float:
     if not W > 0.0:
         return 0.0
     return modal_average(backend.xp.sqrt(grid.kpar2) * E_k, grid, backend) / W
+
+
+def elsasser_kprl_rms(f_hat: Any, grid: Any, backend: Any) -> float:
+    """Return the energy-weighted rms k_par of `z = zhat x grad_perp(f)`:
+
+        k_rms = sqrt(sum_k k_par^2 E_k / sum_k E_k),    E_k = k_perp^2 |f_k|^2 / 4
+
+    Since `<|d_z z|^2> = sum_k k_par^2 |z_k|^2`, this is the exact parallel
+    gradient scale: `<|d_z z|^2> = k_rms^2 <|z|^2>`. The size of the `vA d_z W`
+    term is then `vA k_rms W`. It is always >= `elsasser_kprl_mean`. An empty
+    field returns 0.
+    """
+
+    E_k = 0.25 * grid.kperp2 * backend.xp.abs(f_hat) ** 2
+    W = modal_average(E_k, grid, backend)
+    if not W > 0.0:
+        return 0.0
+    return math.sqrt(max(modal_average(grid.kpar2 * E_k, grid, backend), 0.0) / W)
 
 
 def elsasser_x_alignment(f_hat: Any, grid: Any, backend: Any) -> float:
@@ -336,6 +367,154 @@ def elsasser_budgets(
     return budgets
 
 
+# ---------------------------------------------------------------------------
+# Compressive energy reservoirs: W_par^u, W_par^B, W^p, W_s
+# ---------------------------------------------------------------------------
+
+# The four reservoirs that, with W+ and W-, partition the total energy:
+#
+#     E = W+ + W- + W_par^u + W_par^B + W^p + W_s
+#
+#     W_par^u = <du_par^2>/2                      parallel kinetic energy
+#     W_par^B = vA^2 <db_par^2>/2                 = rho0 vA^2 <(dB_par/B)^2>/2, magnetic pressure
+#     W^p     = (vA^4/cs^2) <db_par^2>/2 = W_par^B/chi    thermal pressure (pressure balance)
+#     W_s     = cs^2/(gamma^2 (gamma-1)) <s^2>/2  = p/(gamma(gamma-1)) <(ds/c_v)^2>/2 for rho0 = 1
+#
+# W^p is slaved to W_par^B by pressure balance, so its budget is W_par^B's
+# times 1/chi; it is kept separate so the six reservoirs add up to E.
+RESERVOIRS = ("w_par_u", "w_par_b", "w_p", "w_s")
+
+RESERVOIR_SCALAR_DIAGNOSTIC_INFO = {
+    "w_par_u": (
+        "Parallel kinetic energy W_par^u = <du_par^2>/2. Budget terms: drive_KB = vA K_b0 <du_par b_x> "
+        "(background field gradient), exchange_lin = vA^2 <du_par d_z db_par> and exchange_nl = "
+        "vA <du_par {psi, db_par}> (both exchanged with w_par_b + w_p), dissipation, forcing."
+    ),
+    "w_par_b": (
+        "Magnetic-pressure energy W_par^B = vA^2 <db_par^2>/2. Budget terms: exchange_lin = vS^2 <db_par d_z du_par>, "
+        "exchange_nl = -alpha * w_par_u_rhs_exchange_nl, drive_KBKp = -vS^2 (K_b0 - K_p0/gamma) <db_par u_x>, "
+        "dissipation, forcing."
+    ),
+    "w_p": (
+        "Thermal-pressure energy W^p = (vA^4/cs^2) <db_par^2>/2 = w_par_b/chi. Its terms are w_par_b's times 1/chi, "
+        "so w_par_b + w_p takes exactly what w_par_u gives up through exchange_*."
+    ),
+    "w_s": (
+        "Entropy energy W_s = cs^2/(gamma^2 (gamma-1)) <s^2>/2. Budget terms: drive_Ks = -W_s-weight K_s <s u_x>, "
+        "dissipation, forcing."
+    ),
+}
+
+
+def reservoir_budgets(
+    fields: ChannelFields,
+    grid: Any,
+    backend: Any,
+    p: Any,
+    *,
+    fft: Any,
+    workspace: Any,
+    dealias_mask: Any | None = None,
+    damping_rates: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return the `w_par_u`, `w_par_b`, `w_p` and `w_s` budgets, value plus signed RHS terms.
+
+    Each term is `<weight * f * (d_t f)|_term>` for one term of the field's
+    ideal equation, written with the physical weights in the table above (not
+    the module's `dbpar_energy_weight`). The terms booked are every ideal term
+    whose box average is nonzero:
+
+        du_par_t = vA^2 d_z db_par + vA {psi, db_par} - vA K_b0 dy(psi) - {phi, du_par}
+        db_par_t = alpha d_z du_par + (alpha/vA) {psi, du_par}
+                   + alpha (K_b0 - K_p0/gamma) dy(phi) - {phi, db_par}
+        s_t      = K_s dy(phi) - {phi, s}
+
+    Advection `-{phi, f}` averages to zero against f and is not booked. The
+    nonlinear exchange uses one Poisson bracket, `X = vA <du_par {psi, db_par}>`.
+    The db_par one, `vA <db_par {psi, du_par}>`, is -X exactly for dealiased
+    fields, so the db_par reservoirs book -X (split alpha : 1 - alpha between
+    w_par_b and w_p). The exchange terms therefore cancel in the sum
+    w_par_u + w_par_b + w_p, as do the linear `exchange_lin` terms after
+    integration by parts in z.
+
+    `damping_rates` maps `du_par`, `db_par` and `s` to the rate each field
+    changes at under damping alone (for example `-D_u du_par_hat`); the rho
+    equation set derives the `s` rate from the drho and db_par operators.
+    With it, every reservoir gets a `dissipation` term.
+    """
+
+    def mean(a_hat: Any, b_hat: Any) -> float:
+        """Box average <a b> of two real fields, from their Fourier coefficients."""
+        return modal_inner_product_average(a_hat, b_hat, grid, backend)
+
+    du = fields.du_par_hat
+    db = fields.db_par_hat
+    s = fields.s_hat
+    u_x = -dy(fields.phi_hat, grid)
+    b_x = -dy(fields.psi_hat, grid)
+
+    # Fraction of the db_par energy (weight vA^2/alpha) in each reservoir:
+    # vA^2 / (vA^2/alpha) = alpha for w_par_b, and 1 - alpha for w_p.
+    frac_b = p.alpha
+    frac_p = 1.0 - p.alpha
+    db_weight = p.vA**2 / p.alpha  # = vA^2 + vA^4/cs^2
+    s_weight = p.cs2 / (p.gamma**2 * (p.gamma - 1.0))
+
+    # The one nonlinear exchange term. poisson_bracket returns the shared
+    # workspace buffer, so it is reduced to a scalar straight away.
+    bracket = poisson_bracket(fields.psi_hat, db, grid, fft, workspace, mask=dealias_mask)
+    exchange_nl = p.vA * mean(du, bracket)
+
+    # du_par equation, weighted by du_par.
+    u_terms = {
+        "drive_KB": p.vA * p.K_b0 * mean(du, b_x),
+        "exchange_lin": p.vA**2 * mean(du, dz(db, grid)),
+        "exchange_nl": exchange_nl,
+    }
+    # db_par equation, weighted by (vA^2/alpha) db_par: alpha * vA^2/alpha = vA^2.
+    db_terms = {
+        "exchange_lin": p.vA**2 * mean(db, dz(du, grid)),
+        "exchange_nl": -exchange_nl,
+        "drive_KBKp": -p.vA**2 * (p.K_b0 - p.K_p0 / p.gamma) * mean(db, u_x),
+    }
+    # s equation, weighted by s_weight s.
+    s_terms = {"drive_Ks": -s_weight * p.K_s * mean(s, u_x)}
+
+    if damping_rates is not None:
+        u_terms["dissipation"] = mean(du, damping_rates["du_par"])
+        db_terms["dissipation"] = db_weight * mean(db, damping_rates["db_par"])
+        s_terms["dissipation"] = s_weight * mean(s, damping_rates["s"])
+
+    values = reservoir_values(fields, grid, backend, p)
+    return {
+        "w_par_u": {"value": values["w_par_u"], "rhs_terms": u_terms},
+        "w_par_b": {
+            "value": values["w_par_b"],
+            "rhs_terms": {name: frac_b * value for name, value in db_terms.items()},
+        },
+        "w_p": {
+            "value": values["w_p"],
+            "rhs_terms": {name: frac_p * value for name, value in db_terms.items()},
+        },
+        "w_s": {"value": values["w_s"], "rhs_terms": s_terms},
+    }
+
+
+def reservoir_values(fields: ChannelFields, grid: Any, backend: Any, p: Any) -> dict[str, float]:
+    """Return the four compressive reservoir energies alone (no FFTs), for forcing kicks."""
+
+    def mean(a_hat: Any, b_hat: Any) -> float:
+        return modal_inner_product_average(a_hat, b_hat, grid, backend)
+
+    db_energy = 0.5 * p.vA**2 / p.alpha * mean(fields.db_par_hat, fields.db_par_hat)
+    return {
+        "w_par_u": 0.5 * mean(fields.du_par_hat, fields.du_par_hat),
+        "w_par_b": p.alpha * db_energy,
+        "w_p": (1.0 - p.alpha) * db_energy,
+        "w_s": 0.5 * p.cs2 / (p.gamma**2 * (p.gamma - 1.0)) * mean(fields.s_hat, fields.s_hat),
+    }
+
+
 def channel_scalar_diagnostics(
     fields: ChannelFields,
     grid: Any,
@@ -361,6 +540,8 @@ def channel_scalar_diagnostics(
         "k_perp_minus": elsasser_kperp_mean(z_minus_hat, grid, backend),
         "k_prl_plus": elsasser_kprl_mean(z_plus_hat, grid, backend),
         "k_prl_minus": elsasser_kprl_mean(z_minus_hat, grid, backend),
+        "k_prl_rms_plus": elsasser_kprl_rms(z_plus_hat, grid, backend),
+        "k_prl_rms_minus": elsasser_kprl_rms(z_minus_hat, grid, backend),
         "w_plus_align": elsasser_x_alignment(z_plus_hat, grid, backend),
         "w_minus_align": elsasser_x_alignment(z_minus_hat, grid, backend),
         "u_perp_rms": perp_gradient_rms(fields.phi_hat, grid, backend),
@@ -370,6 +551,7 @@ def channel_scalar_diagnostics(
         "V_rho_x": fluxes["V_rho_x"],
         "V_psi_x": fluxes["V_psi_x"],
         "q_dcf": -fluxes["w_plus_buoyancy"],
+        "q_ccr_source": -fluxes["w_minus_buoyancy"],
         "N_sq": float(p.N_sq),
         "vA": float(p.vA),
         "acr_B": fluxes["acr_B"],

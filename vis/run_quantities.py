@@ -360,6 +360,68 @@ def run_window(run, *, tmin=None, tmax=None, tail_fraction=0.4):
         raise ValueError(f"{run.run_dir.name}: {error}") from None
 
 
+# The six energy reservoirs of the inhomogeneous sets, and how the reservoir
+# plots (plot_energy_*.py) label and colour them and their budget terms.
+RESERVOIRS = ("w_plus", "w_minus", "w_par_u", "w_par_b", "w_p", "w_s")
+RESERVOIR_LABELS = {
+    "w_plus": r"$W^+$",
+    "w_minus": r"$W^-$",
+    "w_par_u": r"$W_\parallel^u$",
+    "w_par_b": r"$W_\parallel^B$",
+    "w_p": r"$W^p$",
+    "w_s": r"$W_s$",
+}
+RESERVOIR_COLORS = {"w_plus": "tab:red", "w_minus": "tab:cyan", "w_par_u": "tab:green",
+                    "w_par_b": "tab:orange", "w_p": "tab:brown", "w_s": "tab:blue"}
+TERM_LABELS = {
+    "buoyancy": "buoyancy",
+    "drive_KB": r"$\mathcal{K} B$ drive",
+    "drive_KBKp": r"$\mathcal{K} B,\ \mathcal{K} p$ drive",
+    "drive_Ks": r"$\mathcal{K} s$ drive",
+    "exchange_lin": r"linear exchange ($\partial_z$)",
+    "exchange_nl": r"nonlinear exchange ($\delta B_\perp\cdot\nabla$)",
+    "dissipation": "dissipation",
+    "forcing": "forcing",
+    "projection": "projection",
+}
+TERM_COLORS = {"buoyancy": "tab:purple", "drive_KB": "tab:olive", "drive_KBKp": "tab:brown",
+               "drive_Ks": "tab:olive", "exchange_lin": "tab:blue", "exchange_nl": "tab:cyan",
+               "dissipation": "tab:red", "forcing": "tab:green", "projection": "tab:gray"}
+
+
+def budget_rows(times, *, tmin=None, tmax=None, tail_fraction=0.4):
+    """Indices of the scalar-CSV rows whose budget interval lies inside the window.
+
+    Row i saves each `Q_rhs_*` term averaged over (t_{i-1}, t_i], so a row is
+    used when both ends of its interval are in `time_window`.
+    """
+    window = time_window(times, tmin=tmin, tmax=tmax, tail_fraction=tail_fraction)
+    return np.flatnonzero(window[1:] & window[:-1]) + 1
+
+
+def budget_rates(columns, quantity, rows):
+    """Time-averaged rate of every saved budget term of `quantity` over `rows`.
+
+    Returns {term: rate} for each `<quantity>_rhs_<term>` column (not `_total`),
+    plus `measured_dt`, the change of `quantity` over the rows divided by their
+    span, and `residual = measured_dt - sum(terms)`. Each row is weighted by its
+    interval, so the average is exact for the interval-averaged terms and the
+    residual is the budget's integration error. `rows` must be consecutive.
+    """
+    times = columns["time"]
+    rows = np.asarray(rows)
+    interval = times[rows] - times[rows - 1]
+    span = interval.sum()
+    prefix = f"{quantity}_rhs_"
+    terms = sorted(name[len(prefix):] for name in columns
+                   if name.startswith(prefix) and name != prefix + "total")
+    rates = {term: float(np.sum(columns[prefix + term][rows] * interval) / span) for term in terms}
+    measured = float((columns[quantity][rows[-1]] - columns[quantity][rows[0] - 1]) / span)
+    rates["measured_dt"] = measured
+    rates["residual"] = measured - sum(rates[term] for term in terms)
+    return rates
+
+
 def describe_window(tmin=None, tmax=None, tail_fraction=0.4):
     """The averaging window as requested on the command line, for a figure title."""
     if tmin is None and tmax is None:
