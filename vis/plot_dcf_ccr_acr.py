@@ -21,10 +21,23 @@ energy changes; see `rmhdgpu/diagnostics/compressive_channels.py`).
 
   Q_ACR (Alfven-catalysed relaxation), paper Eq. 78:
           Q_ACR = Y_U + Y_B + Y_g - div(p V~_psi)
-      In this box Y_U = 0 (no background flow), the field is straight
-      (curvature 0), and div(p V~_psi) = 0 (uniform background, periodic box,
-      so the mean flux is the same everywhere). That leaves
-          Q_ACR = Y_B + Y_g,   Y_B = acr_B = -vA^2 K_b0 V_psi_x,   Y_g = acr_g = g V_rho_x
+      with p the background thermal pressure. In this box Y_U = 0 (no
+      background flow) and the field is straight (curvature 0). The
+      divergence term splits as
+          div(p V~_psi) = p div(V~_psi) + V~_psi . grad(p)
+      The first part is zero: V~_psi is a box average, one constant vector,
+      and V~_psi = V_psi because u_perp has no k_perp = 0 mode (no mean flow
+      U_perp2). The second part is NOT zero when K_p0 != 0. The solver's
+      force balance, K_b0 = g/vA^2 - chi K_p0/gamma, makes it
+          V~_psi . grad(p) = (g - vA^2 K_b0) V_psi_x = (chi vA^2 K_p0/gamma) V_psi_x
+      so, with Y_B = acr_B = -vA^2 K_b0 V_psi_x and Y_g = acr_g = g V_rho_x,
+          Q_ACR = Y_B + Y_g - (g - vA^2 K_b0) V_psi_x = g (V_rho_x - V_psi_x)
+      which is the paper's second form of Eq. 78, rho (V_rho - V_psi) . g_eff.
+      The pressure work -(g - vA^2 K_b0) V_psi_x is drawn with Y_B and Y_g;
+      the three thin ACR lines add up to Q_ACR. V_psi_x is the interval
+      average -acr_B/(vA^2 K_b0); only when K_b0 = 0 (and g != 0) is the
+      instantaneous V_psi_x column used instead. g, vA and K_b0 come from the
+      run's input_copy.input.
       The thermal part (acr_th) is not drawn: the paper keeps it in the
       thermal budget, not in the heating, because what it powers is
       dissipated back into heat. Note Y_g = -Q_DCF + (z- source), so Q_ACR and
@@ -51,7 +64,7 @@ if __package__ in {None, ""}:
 import numpy as np
 
 from vis._matplotlib import finalize_figure, import_pyplot
-from vis.run_quantities import budget_rows, read_columns
+from vis.run_quantities import budget_rows, load_parameters, read_columns
 
 
 def main(argv=None):
@@ -86,8 +99,23 @@ def main(argv=None):
         "Y_B": columns["total_energy_rhs_acr_B"],
         "Y_g": columns["total_energy_rhs_acr_g"],
     }
-    # Y_U = 0 and div(p V~_psi) = 0 in this box (see the module docstring).
-    channels["Q_ACR"] = channels["Y_B"] + channels["Y_g"]
+    # Y_U = 0 and p div(V~_psi) = 0 in this box, but V~_psi . grad(p) is not
+    # (see the module docstring): Q_ACR = Y_B + Y_g - (g - vA^2 K_b0) V_psi_x.
+    p = load_parameters(run_dir)
+    pressure_gradient = p.g - p.vA**2 * p.K_b0  # = chi vA^2 K_p0 / gamma by force balance
+    # K_b0 = g/vA^2 - chi K_p0/gamma can come out as round-off (~1e-18) when the
+    # input balances g against K_p0; dividing acr_B by that would amplify CSV rounding.
+    if abs(p.vA**2 * p.K_b0) > 1e-10 * (abs(p.g) + abs(pressure_gradient)):
+        v_psi_x = -channels["Y_B"] / (p.vA**2 * p.K_b0)  # interval average, like the budget columns
+    elif pressure_gradient == 0.0:
+        v_psi_x = np.zeros_like(time)  # g = K_p0 = 0: no pressure gradient, nothing to multiply
+    elif "V_psi_x" in columns:
+        print("K_b0 = 0: using the instantaneous V_psi_x column for the pressure work (not an interval average).")
+        v_psi_x = columns["V_psi_x"]
+    else:
+        raise SystemExit(f"{run_dir}/scalar_diagnostics.csv has no V_psi_x column, needed when K_b0 = 0.")
+    channels["pressure_work"] = -pressure_gradient * v_psi_x
+    channels["Q_ACR"] = channels["Y_B"] + channels["Y_g"] + channels["pressure_work"]
 
     # Window means, each row weighted by its interval.
     rows = budget_rows(time, tmin=args.tmin, tmax=args.tmax)
@@ -113,13 +141,14 @@ def main(argv=None):
         ]),
         ("CCR", [
             ("Q_CCR", r"$Q_{CCR} = -D^+$ (W$^+$ dissipation)", "tab:red", "-", 1.8),
-            ("reflection_z_minus", r"reflection: z$^-$ created, $\frac{g}{2}\langle\delta\rho\, z^-_x\rangle$ (not heating)",
+            ("reflection_z_minus", r"reflection: z$^-$ created, $\frac{g}{2}\langle\delta\rho\, z^-_x\rangle$",
              "tab:cyan", "--", 1.0),
         ]),
         ("ACR", [
-            ("Q_ACR", r"$Q_{ACR} = Y_B + Y_g$", "black", "-", 1.8),
+            ("Q_ACR", r"$Q_{ACR} = g\,(V_{\rho,x} - V_{\psi,x})$", "black", "-", 1.8),
             ("Y_B", r"$Y_B$ (magnetic)", "tab:orange", "-", 1.0),
             ("Y_g", r"$Y_g$ (potential)", "tab:purple", "-", 1.0),
+            ("pressure_work", r"$-\tilde V_\psi\cdot\nabla p$ (pressure work)", "tab:green", "-", 1.0),
         ]),
     ]
     for ax, (title, lines) in zip(axes, panels):

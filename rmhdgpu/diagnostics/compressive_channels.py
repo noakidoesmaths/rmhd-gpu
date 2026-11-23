@@ -262,9 +262,13 @@ def fluxes_and_channels(fields: ChannelFields, grid: Any, backend: Any, p: Any) 
     left-hand side.
 
     The three ACR channels sum to the equation module's
-    `total_energy_stratification_rhs`. Only acr_B + acr_g is net heating:
-    acr_th extracts background thermal free energy that dissipation later
-    returns as heat, so do not count it twice.
+    `total_energy_stratification_rhs`. acr_th is not net heating: it
+    extracts background thermal free energy that dissipation later returns
+    as heat, so do not count it twice. Nor is acr_B + acr_g on its own: the
+    paper's Q_ACR (Eq. 78) also subtracts the pressure work
+    V_psi . grad(p) = (g - vA^2 K_b0) V_psi_x, which is nonzero when
+    K_p0 != 0, leaving Q_ACR = g (V_rho_x - V_psi_x). vis/plot_dcf_ccr_acr.py
+    draws it.
     """
 
     def mean(a_hat: Any, b_hat: Any) -> float:
@@ -354,15 +358,15 @@ def elsasser_budgets(
         # Damping alone gives omega_t = -D_omega omega, so phi_t = -D_omega phi,
         # and psi_t = -D_psi psi. When D_omega and D_psi differ, damping also
         # moves energy between W+ and W-.
-        z_plus_t_hat, z_minus_t_hat = elsasser_potentials(
+        z_plus_diss, z_minus_diss = elsasser_potentials(
             -linear_ops["omega"] * fields.phi_hat,
             -linear_ops["psi"] * fields.psi_hat,
         )
         budgets["w_plus"]["rhs_terms"]["dissipation"] = elsasser_energy_rate(
-            z_plus_hat, z_plus_t_hat, grid, backend,
+            z_plus_hat, z_plus_diss, grid, backend,
         )
         budgets["w_minus"]["rhs_terms"]["dissipation"] = elsasser_energy_rate(
-            z_minus_hat, z_minus_t_hat, grid, backend,
+            z_minus_hat, z_minus_diss, grid, backend,
         )
     return budgets
 
