@@ -70,6 +70,7 @@ my_case/
         run.log
         scalar_diagnostics.csv
         spectra.csv
+        energy_flux.csv
         fullfields/
             fullfield_0001.h5
             fullfield_0002.h5
@@ -127,6 +128,7 @@ Outputs are:
 
 - `scalar_diagnostics.csv`: one row per output time, with `time`, `step`, scalar quantities, and saved budget terms
 - `spectra.csv`: tidy/long CSV with columns `time`, `step`, `quantity`, `kperp`, `value`
+- `energy_flux.csv` (written with the spectra, same long format): the scale-by-scale energy budget. For each energy partition (`total`, `z_plus`, `z_minus`, and per-field energies such as `drho` in the inhomogeneous sets), it saves the rate each kind of term changes that energy in each `k_perp` shell: `nonlinear_<partition>` (the transfer `T(k)` by the Poisson brackets, which sums to zero over `k`), `linear_<partition>` (background gradients, gravity and `d_z` terms) and `dissipation_<partition>`. Forcing kicks and the `project_*` mode projections are not included (their totals are in `scalar_diagnostics.csv`). The energy flux through `k_perp = K` is `Pi(K) = -sum_{k<K} T(k)`; `vis/plot_energy_flux.py` plots it. How it is computed is explained in `rmhdgpu/diagnostics/energy_flux.py`
 - `z_profiles.csv` (inhomogeneous sets only, written every `t_out_prof`): the same long format with a `z` column, holding perpendicular averages `<.>_perp(z)` of the energy reservoirs and their local budget terms. For each of the six energies it also has `<energy>_dt`, the instantaneous `d_t W(z)` from the right-hand side, and `<energy>_<term>` for every term (including `w_plus_transport = -vA d_z W+`), so each local budget can be checked at every z
 - `fullfields/fullfield_0001.h5`, `fullfield_0002.h5`, ...: one HDF5 snapshot per output time
 
@@ -166,6 +168,24 @@ in a periodic box; `z_profiles.csv` keeps them. `k_prl_rms_plus` is the rms
 `k_par` of `z+`, so `vA k_prl_rms_plus w_plus` is the size of that term. The
 exact definitions are in `rmhdgpu/diagnostics/compressive_channels.py` and
 `rmhdgpu/diagnostics/z_profiles.py`.
+
+They also write the rms size of each term on the right-hand side, so the
+nonlinearity can be measured without full-field output (`||f|| = <|f|^2>^(1/2)`,
+z± terms in z units):
+
+| Column | Meaning |
+|---|---|
+| `rms_nl_z_minus`, `rms_lin_z_minus` | `\|\|P[z+ . grad z-]\|\|` and `\|\|vA d_z z-\|\|` in the z- equation |
+| `chi_rhs_minus` | their ratio: chi for z- being distorted by z+ (`_kzn0`: `k_z != 0` part of the nonlinear term only) |
+| `..._plus` | the same for z+, which is distorted only by z- |
+| `rms_buoy_z` | rms of the buoyancy term, the same in both Elsasser equations |
+| `rms_nl_s`, `rms_drive_s`, `rms_prl_s` | `\|\|{phi, s}\|\|`, `\|\|K_s dy phi\|\|`, `\|\|vA d_z s\|\|` for `s = delta s/c_v` |
+| `chi_s_drive`, `chi_s_prl` | `rms_nl_s` over `rms_drive_s` (a mixing-length ratio) and over `rms_prl_s` |
+
+`P` drops the part of the advection that the pressure cancels. Ratios with a
+zero denominator are NaN. They are written every `t_out_scal` and cost about
+one extra RHS evaluation. Details are in `rmhdgpu/diagnostics/rhs_ratios.py`;
+`python vis/plot_chi_rhs.py RUN_DIRECTORY` plots them against time.
 
 The scalar CSV also carries saved conserved-quantity budget columns. For the
 current total-energy budget these include:
@@ -635,6 +655,7 @@ Useful notes:
 - `plot_spectra.py` writes one log-log plot per quantity, colored by time
 - `plot_fullfield.py` accepts either a `fullfields/` directory or a single snapshot `.h5` file
 - `plot_chi_a.py` plots the turbulence strength `chi_A = z+_rms k_perp_plus / (vA k_prl_plus)` against time, together with its factors `z+_rms`, `k_perp_plus` and `k_prl_plus`, for one or more inhomogeneous runs, e.g. `python vis/plot_chi_a.py "examples/outputs_nokia_rmhd_5*_rho" --show`
+- `plot_chi_rhs.py` shows three panels with a shared time axis: each Elsasser branch has its `chi_A` proxy and `k_z != 0` RHS ratio, and the entropy panel shows the advection-to-drive ratio `chi_s_drive`. It reads `scalar_diagnostics.csv` only, e.g. `python vis/plot_chi_rhs.py RUN_DIRECTORY --show`.
 - `plot_flux_closure.py` tests the flux closures in dimensionless form against `chi_A`, one window-averaged point per run: `V_rho_x/(F_rho z+ l_perp)` and `V_psi_x/((F_u + vS^2/vA^2 F_B) z+ l_perp)`, each with the run's own estimate `z+_x^2/(2 z+^2)` (hollow marker; 1/4 for isotropic `z+`, drawn as a grey line). `--panels` picks the panels from `V_rho`, `V_psi` and `drho` (raw `rms(drho)`, for reference); the default is `V_rho V_psi`, e.g. `python vis/plot_flux_closure.py "examples/outputs_*_rho" --tmin 2 --tmax 10 --panels V_rho V_psi drho`
 - `plot_flux_convergence.py` checks that those closure points have settled: it plots `V_rho_x/(F_rho z+ l_perp)` (with block means and the run's estimate, dashed), `z-/z+`, `chi_A` and the auto-dissipation `nu_perp` against time, marks the averaging window, and prints each run's drift (second-half over first-half window mean, minus 1), e.g. `python vis/plot_flux_convergence.py "examples/Kp0_forcing/*"`
 - `plot_zplus_heating.py` compares the two ways `z+` loses energy with their closure estimates, side by side: DCF (measured `q_dcf` against Eq. (69), `-g F_rho eta_turb`) and CCR (the `W+` dissipation rate against Eq. (75), `|g F_rho| l_perp z+_x / 4`). It prints the window means, each channel's share of the measured `z+` loss and `W+ z-_rms / l_perp` (CCR with the measured `z-`), and warns when `D+` cannot be read as CCR heating (`z-` forced, or more than 10% of it in the forced shell), e.g. `python vis/plot_zplus_heating.py RUN_DIRECTORY --tmin 100`
@@ -643,6 +664,8 @@ Useful notes:
 - `plot_energy_reservoirs.py` plots the six energy reservoirs (`W+`, `W-`, `W_par^u`, `W_par^B`, `W^p`, `W_s`) of an inhomogeneous run against time, and their shares of the total, e.g. `python vis/plot_energy_reservoirs.py RUN_DIRECTORY`. `plot_budget.py CSV --quantity w_par_u` shows one reservoir's budget term by term
 - `plot_energy_budgets.py` plots the budget of each reservoir against time, one panel per reservoir: every saved term, the measured `d_t W` and the residual (which should sit at zero). `--average N` merges every N output intervals to smooth noisy forcing, the projection term is not drawn by default (`--hide` sets which terms are left off; the residual still counts them), and `--separate` also writes `budget_<reservoir>.png` with `W(t)` above its budget, e.g. `python vis/plot_energy_budgets.py RUN_DIRECTORY --average 5 --separate`
 - `plot_energy_terms.py` shows how much each budget term contributes to each reservoir: one bar per term, averaged over a time window, labelled with its share of the reservoir's gains or losses, with block-average error bars (`--blocks`) and the budget residual in each title; `--hide` leaves terms off; it also writes `energy_terms.csv`, e.g. `python vis/plot_energy_terms.py RUN_DIRECTORY --tmin 5`
+- `plot_stationarity.py` checks whether a run has reached a statistically steady state over a window (bursts are fine; the mean must not drift). For each quantity (default `total_energy`, `w_plus`, `w_minus`, `drho_rms`; `--quantities` picks any CSV columns) it compares the means of the two halves of the window, in units of their error. The error uses the correlation time `tau`: the window holds about `T/(2 tau)` independent samples. Below 2 sigma counts as steady, but with few independent samples even a large drift passes, so look at `N indep` too. It also shows the window-averaged total-energy budget, whose net should be a small fraction of the dissipation. It writes `stationarity.csv`, e.g. `python vis/plot_stationarity.py RUN_DIRECTORY --tmin 200`
+- `plot_energy_flux.py` tests for a cascade. From `energy_flux.csv`, averaged over a (steady) window, it plots the nonlinear energy flux `Pi(K)` divided by the injection rate `eps` (linear drives plus forcing). A cascade shows up as `Pi/eps` of about 1 and flat over a range of `K`; `Pi` falling to about 0 just above injection means the energy is dissipated where it is put in. Fluxes are shown for the total energy, `z+`, `z-` and the compressive energy. A second panel shows the total-energy budget below `K` (injected = crosses `K` + dissipated, in a steady state). Error bands come from block averages (`--blocks`), and the numbers go to `energy_flux_summary.csv`, e.g. `python vis/plot_energy_flux.py RUN_DIRECTORY --tmin 200`
 - `plot_z_rms_terms.py` measures how big each term of the local-in-z budgets is (`W+(z)`, `W-(z)`, the slow-mode energies and `W_s(z)`), as its rms over `z` next to its box average. The transport terms `vA d_z W±` average to zero over the box, so their rms is the only measure of their size. Reads `z_profiles.csv` and writes `z_rms_terms.csv`, e.g. `python vis/plot_z_rms_terms.py RUN_DIRECTORY --tmin 5`
 - `plot_dcf_ccr_acr.py` plots the three heating channels of the paper against time from the interval-averaged budget columns: `Q_DCF = -(g/2)<drho z+_x>` (buoyancy draining z+), `Q_CCR = -w_plus_rhs_dissipation` (the z+ cascade/dissipation, with the reflection rate `(g/2)<drho z-_x>` that creates z- drawn dashed) and `Q_ACR = Y_B + Y_g - (g - vA^2 K_b0) V_psi_x = g (V_rho_x - V_psi_x)` (in this box `Y_U` and `p div(V_psi)` vanish, but the pressure work `V_psi . grad p` does not when `K_p0 != 0`, and is drawn alongside `Y_B` and `Y_g`; it reads `g`, `vA` and `K_b0` from `input_copy.input`; the thermal part `Y_th` is not heating and is not drawn; forcing is not drawn either). Each channel's window mean is in the legend and a CSV; `--average N` smooths, e.g. `python vis/plot_dcf_ccr_acr.py RUN_DIRECTORY --tmin 100 --average 10`
 - `plot_local_budget_signs.py` shows the local budgets of `w_plus`, `w_minus`, `w_par_u`, `w_par_b` and `w_s`, one figure each (`--energy` picks others; `all` adds `w_p`): one panel per term showing, at each saved time, what the term adds and removes: `<max(T,0)>_z` (gain), `<min(T,0)>_z` (loss) and their sum (net, the box-averaged term). Terms that are exactly zero get no row, e.g. `python vis/plot_local_budget_signs.py RUN_DIRECTORY --tmin 100 --tmax 150`

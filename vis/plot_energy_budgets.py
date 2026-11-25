@@ -5,7 +5,7 @@ One panel per reservoir (W+, W-, W_par^u, W_par^B, W^p, W_s) in
 
     coloured lines   every saved term <reservoir>_rhs_<term> (sign as booked:
                      positive adds energy)
-    grey dashed      measured d_t W = (W_i - W_{i-1}) / (t_i - t_{i-1})
+    thin grey dashed measured d_t W, drawn under the terms = (W_i - W_{i-1}) / (t_i - t_{i-1})
     thick black      residual = measured d_t W - sum of the terms
 
 The saved terms are averages over each output interval, so the measured
@@ -108,8 +108,10 @@ def main(argv=None):
                 continue
             ax.plot(t_mid[shown], rate[shown], color=TERM_COLORS.get(term), ls=LINESTYLES.get(term, "-"),
                     lw=1.5, label=TERM_LABELS.get(term, term))
-        # Styled as in plot_budget.py: measured d_t W light, the residual dark on top.
-        ax.plot(t_mid[shown], measured[shown], color="0.6", ls="--", lw=1.6, label=r"measured $d_tW$")
+        # Measured d_t W thin, finely dashed and drawn under the terms, so it does
+        # not hide them; the residual stays dark on top.
+        ax.plot(t_mid[shown], measured[shown], color="0.5", ls=(0, (2, 2)), lw=0.8, zorder=1,
+                label=r"measured $d_tW$")
         ax.plot(t_mid[shown], residual[shown], color="black", lw=3.0, label="residual")
         ax.axhline(0.0, color="k", lw=0.6)
         ax.ticklabel_format(axis="y", style="sci", scilimits=(-2, 3))

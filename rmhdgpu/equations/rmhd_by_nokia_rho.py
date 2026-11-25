@@ -49,6 +49,7 @@ import numpy as np
 
 from rmhdgpu.diagnostics import compressive_channels as channels
 from rmhdgpu.diagnostics import kz0_sectors
+from rmhdgpu.diagnostics import rhs_ratios
 from rmhdgpu.diagnostics.z_profiles import energy_z_profiles
 from rmhdgpu.diagnostics.budget import flatten_conserved_quantity_budgets
 from rmhdgpu.diagnostics.scalar import STANDARD_ENERGY_SCALAR_DIAGNOSTIC_INFO
@@ -75,6 +76,7 @@ SCALAR_DIAGNOSTIC_INFO = {
     **channels.CHANNEL_SCALAR_DIAGNOSTIC_INFO,
     **channels.RESERVOIR_SCALAR_DIAGNOSTIC_INFO,
     **kz0_sectors.kz0_sector_column_info(KZ0_SECTOR_FIELDS),
+    **rhs_ratios.RHS_RATIO_SCALAR_DIAGNOSTIC_INFO,
     "alfvenic_energy": "Alfvenic part of the S09 energy: 0.5 <|grad phi|^2 + |grad psi|^2>.",
     "dupar_energy": "Unweighted kinetic parallel energy proxy: 0.5 <dupar^2>.",
     "dbpar_energy": "Unweighted magnetic-compressive energy proxy: 0.5 <dbpar^2>.",
@@ -207,7 +209,7 @@ def derived_output_fields(state: State, grid: Any, fft: Any, backend: Any) -> di
     with `f = phi ∓ psi` and `phi = inv_lap_perp(omega)`. The magnitude is a
     pointwise nonlinear quantity, so it is formed in real space rather than
     stored as a single Fourier field. This matches the Elsasser convention used
-    by `_energy_modal_densities` (where the `z_plus`/`z_minus` energies carry the
+    by `energy_modal_densities` (where the `z_plus`/`z_minus` energies carry the
     same `kperp2 |phi ∓ psi|^2 = |grad_perp(phi ∓ psi)|^2` weighting).
     """
 
@@ -498,7 +500,7 @@ def build_dissipation_operators(
     }
 
 
-def _energy_modal_densities(
+def energy_modal_densities(
     state: State,
     grid: Any,
     backend: Any,
@@ -539,7 +541,7 @@ def perpendicular_energy_spectra(
     """Return the inhomogeneous rmhd shell spectra."""
 
     spectra: dict[str, np.ndarray] = {}
-    for name, density in _energy_modal_densities(state, grid, backend, params).items():
+    for name, density in energy_modal_densities(state, grid, backend, params).items():
         kperp, spectrum = perpendicular_shell_spectrum(density, grid, backend, bin_width=bin_width)
         spectra.setdefault("kperp", kperp)
         spectra[name] = spectrum
@@ -557,7 +559,7 @@ def parallel_energy_spectra(
     """Return the inhomogeneous rmhd parallel (kz) shell spectra."""
 
     spectra: dict[str, np.ndarray] = {}
-    for name, density in _energy_modal_densities(state, grid, backend, params).items():
+    for name, density in energy_modal_densities(state, grid, backend, params).items():
         kprl, spectrum = parallel_shell_spectrum(density, grid, backend, bin_width=bin_width)
         spectra.setdefault("kprl", kprl)
         spectra[name] = spectrum
@@ -812,6 +814,7 @@ def compute_equation_scalar_diagnostics(
     linear_ops: dict[str, Any] | None = None,
     budget_rhs_terms: dict[str, dict[str, float]] | None = None,
     extra_rhs_terms: dict[str, dict[str, float]] | None = None,
+    dealias_mask: Any | None = None,
 ) -> dict[str, float]:
     """Return S09-specific scalar diagnostics.
 
@@ -819,6 +822,10 @@ def compute_equation_scalar_diagnostics(
     new equation set, provide this function and include the standard
     `total_energy` / `total_energy_rhs_*` names so generic budget plotting
     tools can operate without knowing equation-specific details.
+
+    With `fft` and `workspace` the rms sizes of the RHS terms and the
+    `chi_rhs_*` / `chi_s_*` ratios are added (`rhs_ratios`); pass the solver's
+    `dealias_mask` so their nonlinear terms match the time stepper's.
     """
 
     alfvenic = alfvenic_energy(state, grid, backend)
@@ -841,9 +848,21 @@ def compute_equation_scalar_diagnostics(
     # Energy at k_z = 0, split into k_y = 0 (mean profiles <f>(x)) and k_y != 0.
     diagnostics.update(
         kz0_sectors.kz0_sector_energies(
-            _energy_modal_densities(state, grid, backend, params), KZ0_SECTOR_FIELDS, grid, backend,
+            energy_modal_densities(state, grid, backend, params), KZ0_SECTOR_FIELDS, grid, backend,
         )
     )
+    if fft is not None and workspace is not None:
+        diagnostics.update(
+            rhs_ratios.rhs_ratio_diagnostics(
+                channel_fields(state, grid, params),
+                grid,
+                fft,
+                backend,
+                workspace,
+                derived_parameters(params),
+                dealias_mask=dealias_mask,
+            )
+        )
 
     budgets = compute_conserved_quantity_budgets(
         state,

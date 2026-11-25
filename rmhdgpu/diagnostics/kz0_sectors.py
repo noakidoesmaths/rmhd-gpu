@@ -17,7 +17,7 @@ to `total_energy` (z+ + z- equals u_perp + b_perp mode by mode, so the
 Elsasser pair stands in for the Alfvenic energy).
 
 Energies are volume averages taken from the equation module's own modal
-densities (`_energy_modal_densities`), so the weights (entropy energy of the
+densities (`energy_modal_densities`), so the weights (entropy energy of the
 compressive field, `dbpar_energy_weight`) match the spectra and `total_energy`.
 Note that z± carry k_perp^2 |phi ∓ psi|^2, so their energy at k_perp = 0
 (kx = ky = 0) is identically zero; their `kz0_ky0` part comes from kx != 0.
@@ -114,7 +114,7 @@ def kz0_sector_energies(
     k_perp split, `E_kperp0_<field>`, `E_kperpn0_<field>`, `E_kperp0`, `E_kperpn0`.
 
     `densities` maps field name to its modal energy density, as returned by an
-    equation module's `_energy_modal_densities`. `fields` must partition the
+    equation module's `energy_modal_densities`. `fields` must partition the
     total energy (e.g. z_plus, z_minus, du_par, db_par and the entropy field),
     otherwise the totals do not add up to `total_energy`.
     """

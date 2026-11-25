@@ -18,6 +18,7 @@ from rmhdgpu.auto_dissipation import (
     disabled_auto_dissipation_diagnostics,
 )
 from rmhdgpu.backend import build_backend
+from rmhdgpu.diagnostics.energy_flux import energy_flux_spectra
 from rmhdgpu.diagnostics.spectra import (
     parallel_energy_spectrum_from_state,
     perpendicular_energy_spectrum_from_state,
@@ -32,6 +33,7 @@ from rmhdgpu.grid import build_grid
 from rmhdgpu.initconds import build_initial_state, list_initial_condition_types
 from rmhdgpu.masks import build_dealias_mask
 from rmhdgpu.output import (
+    ENERGY_FLUX_FILENAME,
     FULLFIELD_DIAGNOSTICS_DIRNAME,
     SCALAR_DIAGNOSTICS_FILENAME,
     SPECTRA_DIAGNOSTICS_FILENAME,
@@ -277,6 +279,7 @@ def _diagnostics_row(
     linear_ops: dict[str, Any] | None = None,
     budget_rhs_terms: dict[str, dict[str, float]] | None = None,
     extra_scalar_diagnostics: dict[str, float] | None = None,
+    dealias_mask: Any | None = None,
 ) -> dict[str, float | int]:
     row: dict[str, float | int] = {
         "step": step,
@@ -294,6 +297,7 @@ def _diagnostics_row(
             workspace=workspace,
             linear_ops=linear_ops,
             budget_rhs_terms=budget_rhs_terms,
+            dealias_mask=dealias_mask,
         )
     )
     if extra_scalar_diagnostics is not None:
@@ -434,6 +438,11 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
         )
         spectra_prl_writer = (
             SpectraDiagnosticsWriter(spectra_prl_csv_path, k_column="kprl")
+            if output_cadence_enabled(config.t_out_spec)
+            else None
+        )
+        energy_flux_writer = (
+            SpectraDiagnosticsWriter(output_dir / ENERGY_FLUX_FILENAME)
             if output_cadence_enabled(config.t_out_spec)
             else None
         )
@@ -582,6 +591,7 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                     equation_module=equation_module,
                     linear_ops=linear_ops,
                     budget_rhs_terms=_averaged_budget_terms(),
+                    dealias_mask=mask,
                     extra_scalar_diagnostics={**auto_dissipation_diagnostics,
                         **({} if controlled_forcing is None else forcing_control.diagnostics(controlled_forcing, state))},
                 )
@@ -619,6 +629,10 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                     params=config,
                 )
                 spectra_prl_writer.write_spectra(time=t, step=steps, spectra=spectra_prl)
+                energy_flux_writer.write_spectra(time=t, step=steps, spectra=energy_flux_spectra(
+                    state, grid=grid, fft=fft, workspace=workspace, backend=backend, params=config,
+                    equation_module=equation_module, linear_ops=linear_ops, dealias_mask=mask,
+                ))
                 logger.event(
                     "spectra diagnostics",
                     {
@@ -820,6 +834,8 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
                 spectra_writer.close()
             if spectra_prl_writer is not None:
                 spectra_prl_writer.close()
+            if energy_flux_writer is not None:
+                energy_flux_writer.close()
             if z_profiles_writer is not None:
                 z_profiles_writer.close()
             if fullfield_writer is not None:
@@ -843,6 +859,7 @@ def run_simulation(settings: RunSettings, *, observer=None) -> dict[str, Any]:
             summary["scalar_diagnostics_csv"] = str(scalar_csv_path)
         if output_cadence_enabled(config.t_out_spec):
             summary["spectra_csv"] = str(spectra_csv_path)
+            summary["energy_flux_csv"] = str(output_dir / ENERGY_FLUX_FILENAME)
         if z_profiles_writer is not None:
             summary["z_profiles_csv"] = str(output_dir / Z_PROFILES_FILENAME)
         if output_cadence_enabled(config.t_out_full):

@@ -440,6 +440,7 @@ def compute_equation_scalar_diagnostics(
     linear_ops: dict[str, Any] | None = None,
     budget_rhs_terms: dict[str, dict[str, float]] | None = None,
     extra_rhs_terms: dict[str, dict[str, float]] | None = None,
+    dealias_mask: Any | None = None,  # unused here; the driver passes it to every equation set
 ) -> dict[str, float]:
     """Return Alfvénic equation-set scalar diagnostics."""
 

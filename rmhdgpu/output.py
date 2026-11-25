@@ -32,6 +32,10 @@ SPECTRA_PRL_DIAGNOSTICS_FILENAME = "spectra_prl.csv"
 # Perpendicular-average profiles <.>_perp(z), long format with a `z` column;
 # written with the spectra by equation modules that provide `z_profiles`.
 Z_PROFILES_FILENAME = "z_profiles.csv"
+# Shell-by-shell energy rates (nonlinear transfer, linear terms, dissipation),
+# long format with a `kperp` column, written with the spectra.
+# See rmhdgpu/diagnostics/energy_flux.py.
+ENERGY_FLUX_FILENAME = "energy_flux.csv"
 FULLFIELD_DIAGNOSTICS_DIRNAME = "fullfields"
 OUTPUT_TIME_TOLERANCE = 1.0e-15
 

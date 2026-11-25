@@ -70,7 +70,7 @@ def test_snapshot_columns_match_the_solver_diagnostic(tmp_path):
     columns = sector_columns_from_snapshots(tmp_path)
 
     assert columns["time"][0] == pytest.approx(1.25)
-    expected = kz0_sector_energies(rmhd_by_nokia_rho._energy_modal_densities(state, grid, backend, config),
+    expected = kz0_sector_energies(rmhd_by_nokia_rho.energy_modal_densities(state, grid, backend, config),
                                    rmhd_by_nokia_rho.KZ0_SECTOR_FIELDS, grid, backend)
     for name in SECTOR_COLUMNS:
         assert columns[name][0] == pytest.approx(expected[name], rel=1e-10, abs=1e-15)

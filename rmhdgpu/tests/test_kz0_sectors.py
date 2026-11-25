@@ -55,7 +55,7 @@ def _random_state(module: Any, backend: Any, grid: Any, fft: FFTManager) -> Stat
 
 
 def _sectors(module, state, grid, backend, config) -> dict[str, float]:
-    densities = module._energy_modal_densities(state, grid, backend, config)
+    densities = module.energy_modal_densities(state, grid, backend, config)
     return kz0_sectors.kz0_sector_energies(densities, module.KZ0_SECTOR_FIELDS, grid, backend)
 
 
@@ -70,7 +70,7 @@ def test_sectors_add_up_to_total_energy(equation_set):
     assert out["E_kz0_ky0"] + out["E_kz0_kyn0"] + out["E_kzn0"] == pytest.approx(total, rel=1e-12)
     assert min(out["E_kz0_ky0"], out["E_kz0_kyn0"], out["E_kzn0"]) > 0.0
 
-    densities = module._energy_modal_densities(state, grid, backend, config)
+    densities = module.energy_modal_densities(state, grid, backend, config)
     for field in module.KZ0_SECTOR_FIELDS:
         parts = out[f"E_kz0_ky0_{field}"] + out[f"E_kz0_kyn0_{field}"] + out[f"E_kzn0_{field}"]
         assert parts == pytest.approx(modal_density_average(densities[field], grid, backend), rel=1e-12)
